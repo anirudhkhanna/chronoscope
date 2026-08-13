@@ -1,0 +1,17 @@
+{
+  "name": "chronoscope",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "chronoscope.mjs",
+  "scripts": {
+    "start": "node chronoscope.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Chronoscope — webpage latency testing kit",
+  "dependencies": {
+    "playwright": "^1.61.1"
+  }
+}

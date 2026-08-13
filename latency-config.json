@@ -1,0 +1,18 @@
+{
+  "name": "Dancenter",
+  "locale": "da-DK",
+  "timezoneId": "Europe/Copenhagen",
+  "uaSuffix": "DancenterLatencyBot/1.0",
+  "serverTimingMetric": "prism-server-rtt",
+  "queryParam": "latencytest",
+  "headers": { "X-Host": "www.dancenter.dk" },
+  "alarmGapMs": 700,
+  "alarmGapRatio": 3.0,
+  "testUrls": {
+    "home": "https://www.dancenter.dk/dk/",
+    "pdp": {
+      "bogense": "https://www.dancenter.dk/property/sommerhus-bogense-5-personer-dk-100057560/",
+      "karrebaeksminde": "https://www.dancenter.dk/property/sommerhus-karrebaeksminde-6-personer-dk-100004500/"
+    }
+  }
+}

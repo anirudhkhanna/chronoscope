@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Generated output — a run's CSV/JSONL/summary files, not source
+logs/
+
+# Local/machine-specific settings, not meant to be shared
+.claude/settings.local.json
+
+# OS cruft
+.DS_Store
+
+# Just in case a future config carries secrets
+.env
+.env.local

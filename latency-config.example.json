@@ -1,0 +1,22 @@
+{
+  "name": "Acme",
+  "locale": "en-GB",
+  "timezoneId": "Europe/London",
+  "uaSuffix": "AcmeLatencyBot/1.0",
+  "serverTimingMetric": "origin-rtt",
+  "queryParam": "latencytest",
+  "headers": { "X-Internal-Test": "1" },
+  "alarmGapMs": 500,
+  "alarmGapRatio": 2.5,
+  "testUrls": {
+    "home": "https://acme.example/",
+    "pdp": {
+      "widget-a": "https://acme.example/product/widget-a",
+      "widget-b": "https://acme.example/product/widget-b"
+    },
+    "search": [
+      "https://acme.example/search?q=foo",
+      "https://acme.example/search?q=bar"
+    ]
+  }
+}
