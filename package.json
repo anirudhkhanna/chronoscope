@@ -10,7 +10,7 @@
   "keywords": [],
   "author": "Anirudh Khanna",
   "license": "MIT",
-  "description": "Chronoscope — webpage latency testing kit",
+  "description": "⏱️ Chronoscope — webpage latency testing kit",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/anirudhkhanna/chronoscope.git"

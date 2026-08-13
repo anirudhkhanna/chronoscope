@@ -1,4 +1,4 @@
-# Chronoscope
+# ⏱️ Chronoscope
 
 *Webpage Latency Testing Kit*
 

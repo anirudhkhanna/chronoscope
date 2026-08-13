@@ -1,4 +1,4 @@
-// Chronoscope — webpage latency testing kit, driven by real installed Chrome.
+// ⏱️ Chronoscope — webpage latency testing kit, driven by real installed Chrome.
 //
 // Site-specific detail (which URLs to hit, locale/timezone, the UA suffix,
 // and the name of a Server-Timing metric to compare TTFB against) all comes
@@ -84,7 +84,7 @@ const TOOL_DEFAULTS = {
 
 const DEFAULT_CONFIG_PATH = 'latency-config.json';
 
-const HELP_TEXT = `Chronoscope — webpage latency testing kit
+const HELP_TEXT = `⏱️ Chronoscope — webpage latency testing kit
 
 Usage: node chronoscope.mjs [options]
 
@@ -1092,7 +1092,7 @@ async function main() {
     'timestamp,request_id,target,url,network_profile,device_profile,status,ttfb_ms,server_ms,gap_ms,gap_ratio,alarm,alarm_reason,wait_ms,dns_ms,connect_ms,tls_ms,download_ms,total_ms,redirect_ms,protocol,page_title,error\n'
   );
 
-  boxTop('Chronoscope run configuration');
+  boxTop('⏱️ Chronoscope run configuration');
   boxLine('Site', `${SITE.name}  (config: ${SITE.configPath})`);
   boxLine('Targets', targets.map((t) => t.name).join(', '));
   boxLine('Interval', `${intervalMs / 1000}s ± ${jitterMs / 1000}s jitter`);

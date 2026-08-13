@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Chronoscope — webpage latency testing kit. It drives a real, locally installed Chrome via Playwright to repeatedly hit a configured set of URLs, reads timing straight from the Navigation Timing API (the same numbers CWV/CrUX field data uses), and optionally diffs TTFB against a `Server-Timing` header your origin/CDN adds — to answer "is the gap between what my app reports and what the browser sees a network/edge problem or an origin problem?"
+⏱️ Chronoscope — webpage latency testing kit. It drives a real, locally installed Chrome via Playwright to repeatedly hit a configured set of URLs, reads timing straight from the Navigation Timing API (the same numbers CWV/CrUX field data uses), and optionally diffs TTFB against a `Server-Timing` header your origin/CDN adds — to answer "is the gap between what my app reports and what the browser sees a network/edge problem or an origin problem?"
 
 Single file, no framework, no build step: `chronoscope.mjs`. Everything else in the repo is config or output.
 
