@@ -99,7 +99,7 @@ Config file (JSON), default path: ./${DEFAULT_CONFIG_PATH} — override with --c
   Optional: "name" (site/brand label, shown in banners), "locale" (BCP-47,
   default "${TOOL_DEFAULTS.locale}"), "timezoneId" (IANA, default "${TOOL_DEFAULTS.timezoneId}"),
   "uaSuffix" (appended to the real Chrome UA so hits are identifiable/
-  filterable in your own access logs or RUM — defaults to "<Name>LatencyBot/1.0"),
+  filterable in your own access logs or RUM — defaults to "<Name>-ChronoscopeLatencyBot/1.0"),
   "serverTimingMetric" (name of a Server-Timing entry your app/CDN adds, e.g.
   via nginx \`add_header Server-Timing 'foo;dur=...'\`, compared against TTFB
   to see how much of any gap is edge/network vs. origin — omit to disable
@@ -305,7 +305,11 @@ const SITE = {
   locale: siteConfigRaw.locale || TOOL_DEFAULTS.locale,
   timezoneId: siteConfigRaw.timezoneId || TOOL_DEFAULTS.timezoneId,
   queryParam: siteConfigRaw.queryParam || TOOL_DEFAULTS.queryParam,
-  uaSuffix: siteConfigRaw.uaSuffix || `${(siteConfigRaw.name || 'Synthetic').replace(/[^a-zA-Z0-9]/g, '')}LatencyBot/1.0`,
+  uaSuffix:
+    siteConfigRaw.uaSuffix ||
+    (siteConfigRaw.name
+      ? `${siteConfigRaw.name.replace(/[^a-zA-Z0-9]/g, '')}-ChronoscopeLatencyBot/1.0`
+      : 'ChronoscopeLatencyBot/1.0'),
   headers: validateHeaders(siteConfigRaw),
   alarmGapMs: typeof siteConfigRaw.alarmGapMs === 'number' ? siteConfigRaw.alarmGapMs : TOOL_DEFAULTS.alarmGapMs,
   alarmGapRatio: typeof siteConfigRaw.alarmGapRatio === 'number' ? siteConfigRaw.alarmGapRatio : TOOL_DEFAULTS.alarmGapRatio,
