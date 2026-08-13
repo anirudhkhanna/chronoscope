@@ -8,9 +8,17 @@
     "start": "node chronoscope.mjs"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Anirudh Khanna",
+  "license": "MIT",
   "description": "Chronoscope — webpage latency testing kit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anirudhkhanna/chronoscope.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anirudhkhanna/chronoscope/issues"
+  },
+  "homepage": "https://github.com/anirudhkhanna/chronoscope#readme",
   "dependencies": {
     "playwright": "^1.61.1"
   }
