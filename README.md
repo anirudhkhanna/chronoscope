@@ -145,3 +145,11 @@ node chronoscope.mjs --alarm-gap=800 --alarm-ratio=3
 ```
 
 See `CLAUDE.md` for how the codebase is put together internally.
+
+## Author
+
+[Anirudh Khanna](https://github.com/anirudhkhanna)
+
+## License
+
+[MIT](LICENSE)
