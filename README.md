@@ -6,6 +6,10 @@ A synthetic TTFB monitor that drives real, locally installed Chrome to repeatedl
 
 It optionally compares that TTFB against a `Server-Timing` header your app or CDN adds (e.g. `Server-Timing: origin-rtt;dur=495`), so every hit tells you both "what the browser measured" and "what your origin says it took" side by side.
 
+<img width="1225" height="483" alt="Screenshot 2026-08-14 at 3 02 43 AM" src="https://github.com/user-attachments/assets/57460100-f9f9-4bfc-a98c-fb357b561542" />
+<img width="1218" height="590" alt="Screenshot 2026-08-14 at 3 02 55 AM" src="https://github.com/user-attachments/assets/8435d45c-237b-4cf1-b799-77c07f2d3d2c" />
+
+
 ## Why real Chrome, not a simple HTTP client
 
 A plain `curl`/`fetch` request doesn't reproduce the actual TLS/HTTP2 fingerprint, connection behavior, or bot-detection surface a genuine visitor's Chrome presents to your edge (Akamai, Cloudflare, etc.) — which matters if you suspect the discrepancy is coming from *how* the request is made, not just where the server is. This tool drives your actual installed Chrome (not Playwright's bundled Chromium) via CDP, so TTFB, DNS, connect, and TLS timings are as close as a machine can get to "what a real user's browser saw."
