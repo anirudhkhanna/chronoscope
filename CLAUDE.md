@@ -49,6 +49,8 @@ There is no lint config. Correctness for anything not covered by the test suite 
 
 `.github/workflows/test.yml` runs the same `npm test` on `ubuntu-latest` for every push/PR to `main` — that runner image ships Google Chrome stable pre-installed, so `channel: 'chrome'` resolves without needing Playwright's own bundled Chromium (`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is still set, consistent with local installs). Free and unlimited on GitHub-hosted runners for this public repo — no billing concern from adding more CI usage.
 
+`ubuntu-latest` has no display server, so the workflow runs the whole suite under `xvfb-run` — confirmed necessary the hard way: the first CI run passed 55 tests and failed all 12 that launch `headless: false` Chrome (`--headed`/`--manual`/`--devtools`/`--pause-on-alarm`/`--new-tab-on-alarm`), every one with the identical `browserType.launch: Target page, context or browser has been closed` error. `xvfb-run` gives Chrome a virtual framebuffer to render into — nothing is actually displayed anywhere, it just satisfies Chrome's hard requirement that *a* display exist before it'll launch non-headless at all.
+
 `npm start` also works but forwards no args by default; pass flags after `--` (`npm start -- --only=home`), or just call `node chronoscope.mjs` directly.
 
 ## Test suite

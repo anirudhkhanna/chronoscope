@@ -24,5 +24,14 @@ jobs:
       - name: Verify real Chrome is available
         run: google-chrome --version
 
+      # ubuntu-latest has no display server — any headless: false Chrome
+      # launch (--headed/--manual/--devtools/--pause-on-alarm/
+      # --new-tab-on-alarm tests) fails outright with "Target page, context
+      # or browser has been closed" without one. xvfb-run provides a virtual
+      # framebuffer for Chrome to render into; nothing is actually displayed
+      # anywhere, it just satisfies Chrome's requirement that a display exist.
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Run test suite
-        run: npm test
+        run: xvfb-run --auto-servernum npm test
