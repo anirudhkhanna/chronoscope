@@ -47,6 +47,8 @@ npm test
 
 There is no lint config. Correctness for anything not covered by the test suite has historically been verified by running the script live against a real site for a short burst (`--interval` set low, `--jitter=0`), sending it `SIGINT`, and inspecting the console output plus the generated `logs/requests-*.csv` / `summary-*.json` — still the way to sanity-check something the suite doesn't reach (e.g. console formatting/color, or behavior against a specific real site's quirks).
 
+`.github/workflows/test.yml` runs the same `npm test` on `ubuntu-latest` for every push/PR to `main` — that runner image ships Google Chrome stable pre-installed, so `channel: 'chrome'` resolves without needing Playwright's own bundled Chromium (`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is still set, consistent with local installs). Free and unlimited on GitHub-hosted runners for this public repo — no billing concern from adding more CI usage.
+
 `npm start` also works but forwards no args by default; pass flags after `--` (`npm start -- --only=home`), or just call `node chronoscope.mjs` directly.
 
 ## Test suite
