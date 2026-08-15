@@ -1,4 +1,4 @@
-# ⏱️ C H R O N O S C O P E
+# ⏱️ 𝙲 𝙷 𝚁 𝙾 𝙽 𝙾 𝚂 𝙲 𝙾 𝙿 𝙴
 
 *Webpage Latency Testing Kit*
 
