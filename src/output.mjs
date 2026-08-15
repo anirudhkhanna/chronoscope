@@ -42,8 +42,44 @@ export function buildMetricsLine(rec, metricLabel, serverTimingMetric) {
     ? `   ttfb :: ${ttfbVal}  ${metricLabel} :: ${serverVal}  |  gap :: ${gapVal}${gapRatioSuffix}`
     : `   ttfb :: ${boldize(ttfbVal)}  ${metricLabel} :: ${boldize(serverVal)}  |  gap :: ${boldize(gapVal)}${gapRatioSuffix}`;
 }
+// redirect= is prepended (not appended) since it happens chronologically
+// before dns/connect/tls/wait of the final request — with it, the fields on
+// this line actually sum to ttfb for a redirecting hit; without it, TTFB
+// silently includes the redirect's full duration with nothing on this line
+// accounting for it. Unlike dns/connect/tls (always shown, even at 0ms),
+// this one is omitted entirely on a hit that genuinely didn't redirect
+// (final_url === url) — an earlier draft always showed it, reasoning it
+// should match dns/connect/tls's unconditional treatment, but that's not
+// actually analogous: dns/connect/tls are core, load-bearing facts on every
+// hit, while redirect is a real event that either happened or didn't, closer
+// to the verbose "redirected →" line's own "omit when it's usually not true"
+// reasoning than to dns/connect/tls's "always relevant" one.
+//
+// "hidden (cross-origin)" instead of a raw 0ms specifically when the target
+// DID redirect (final_url !== url) but redirect_ms still reads 0 — this is a
+// real, confirmed browser behavior, not our own display choice: per the
+// Navigation Timing spec, redirectStart/redirectEnd are zeroed for JS when a
+// redirect crosses origins (scheme or host change — http→https, apex→www)
+// and that redirect response didn't send Timing-Allow-Origin, as a
+// cross-origin-timing-attack protection. Confirmed directly: requesting
+// http://dancenter.dk/dk (which real-world redirects through http→https and
+// apex→www before landing on https://www.dancenter.dk/dk/) reports
+// redirectCount: 0, redirectStart: 0, redirectEnd: 0 despite finalUrl proving
+// multiple redirects happened. Printing a plain "0ms" there would claim the
+// redirect cost nothing, when the truth is the browser won't tell JS what it
+// cost — those are different facts and this line shouldn't blur them, and
+// unlike the "genuinely no redirect" case, this one IS still worth surfacing
+// every time it happens rather than omitted, since it's a real caveat about
+// the numbers above it, not a non-event.
 export function buildBreakdownLine(rec) {
-  return `   ↳ dns=${fmtMs(rec.dns_ms)} connect=${fmtMs(rec.connect_ms)} tls=${fmtMs(rec.tls_ms)} ` +
+  const redirected = rec.final_url && rec.final_url !== rec.url;
+  let redirectPart = '';
+  if (redirected && rec.redirect_ms === 0) {
+    redirectPart = 'redirect=hidden (cross-origin) ';
+  } else if (rec.redirect_ms > 0) {
+    redirectPart = `redirect=${fmtMs(rec.redirect_ms)} `;
+  }
+  return `   ↳ ${redirectPart}dns=${fmtMs(rec.dns_ms)} connect=${fmtMs(rec.connect_ms)} tls=${fmtMs(rec.tls_ms)} ` +
     `wait=${fmtMs(rec.wait_ms)} download=${fmtMs(rec.download_ms)}`;
 }
 
@@ -271,19 +307,29 @@ export function printFinalSummary(summary, metricLabel, serverTimingMetric, verb
 
   // Secondary table (dimmed, same treatment as the live breakdown line) —
   // where the TTFB above is actually going, not the headline comparison.
+  // DNS/connect/TLS/wait sum to TTFB for a target that never redirects;
+  // download is what follows TTFB, and redirect (when non-zero) is time TTFB
+  // includes but none of the other columns account for — see buildBreakdownLine.
   const breakdownRows = targetNames
     .filter((name) => summary.byTarget[name].count > 0)
     .map((name) => {
       const s = summary.byTarget[name];
-      return [name, fmtMs(s.dns_ms.avg), fmtMs(s.connect_ms.avg), fmtMs(s.tls_ms.avg), fmtMs(s.wait_ms.avg)];
+      // A `*` marks a target with at least one hidden (cross-origin) redirect
+      // among its hits — those report redirect_ms=0 same as a hit that never
+      // redirected at all, so this average may be an undercount for them.
+      const redirectAvg = fmtMs(s.redirect_ms.avg) + (s.hiddenRedirectCount > 0 ? '*' : '');
+      return [name, fmtMs(s.dns_ms.avg), fmtMs(s.connect_ms.avg), fmtMs(s.tls_ms.avg), fmtMs(s.wait_ms.avg), fmtMs(s.download_ms.avg), redirectAvg];
     });
   if (breakdownRows.length > 0) {
     renderTable(
-      ['Target', 'DNS avg', 'Connect avg', 'TLS avg', 'Wait avg'],
+      ['Target', 'DNS avg', 'Connect avg', 'TLS avg', 'Wait avg', 'Download avg', 'Redirect avg'],
       breakdownRows,
-      ['l', 'r', 'r', 'r', 'r'],
+      ['l', 'r', 'r', 'r', 'r', 'r', 'r'],
       { headerStyle: boldDim, rowStyle: dimize }
     );
+    if (targetNames.some((name) => summary.byTarget[name].hiddenRedirectCount > 0)) {
+      console.log(dimize('(* at least one hit\'s redirect time was hidden by the browser — cross-origin redirect without Timing-Allow-Origin; Redirect avg may be an undercount)'));
+    }
     console.log('');
   }
 

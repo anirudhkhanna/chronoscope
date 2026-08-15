@@ -17,6 +17,12 @@ It optionally compares that TTFB against a `Server-Timing` header your app or CD
 
 A plain `curl`/`fetch` request doesn't reproduce the actual TLS/HTTP2 fingerprint, connection behavior, or bot-detection surface a genuine visitor's Chrome presents to your edge (Akamai, Cloudflare, etc.) — which matters if you suspect the discrepancy is coming from *how* the request is made, not just where the server is. This tool drives your actual installed Chrome (not Playwright's bundled Chromium) via CDP, so TTFB, DNS, connect, and TLS timings are as close as a machine can get to "what a real user's browser saw."
 
+## Where these numbers actually come from
+
+Every timing value — TTFB, DNS, connect, TLS, wait, download, redirect — is read from the browser's own [Navigation Timing API](https://developer.mozilla.org/en-US/docs/Web/API/PerformanceNavigationTiming) (`performance.getEntriesByType('navigation')[0]`), **not** from reading Chrome DevTools' Network panel. Usually that distinction doesn't matter — but if a target redirects, it does: DevTools shows the redirect and the final request as two separate rows, each measuring only its own isolated phases, so the redirect's cost shows up as the final row's "Queued at" offset rather than inside its own Wait time — easy to read as "the redirect isn't counted." The single Navigation Timing entry this tool actually reads is timestamped from *before* the redirect even starts, so TTFB (and everything derived from it, like the gap) fully includes a redirect's duration whether or not anything else on screen shows it. When a hit redirects, its breakdown line gets a `redirect=<ms>` field (omitted on hits that don't — same as the URL, this doesn't show up unless it's actually relevant) — that's the piece DevTools' waterfall view splits into a different row instead.
+
+One more wrinkle: if the redirect crosses origins (`http://` → `https://`, or a bare domain → `www.`) and that redirect response doesn't send a `Timing-Allow-Origin` header, Chrome deliberately reports `redirect=0ms` to JavaScript regardless of how long the redirect actually took — a genuine browser privacy protection against cross-origin timing side-channels, not a bug in this tool. So you'll see `redirect=hidden (cross-origin)` instead of a number in that case — that's this tool telling you "a redirect definitely happened (the final URL differs from the one you configured) but the browser won't say how long it took," which is a different, more honest fact than a plain `0ms` would be. The final summary's own DNS/connect/TLS/wait table marks a target's `Redirect avg` with a trailing `*` (plus one disclaimer line under the table) whenever any of its hits hit this case, since averaging in a hidden hit's fake zero would otherwise understate it silently.
+
 ## Quick start
 
 ```bash
@@ -85,6 +91,8 @@ The console output is grouped so a real fact about a specific hit, a derived bre
 ```
 
 The headline is `[time] target id - status (device · network · proto)` — `device`/`network` only appear when a profile is active, otherwise it's just `(proto)`. The page title follows on its own line. An alarming hit appends `── ALARM: <reason>` to the end of that same headline.
+
+If a target redirects, the breakdown line leads with `redirect=<ms>` (`↳ redirect=18ms dns=... connect=... tls=... wait=... download=...`) — worth knowing about even on a target you don't think redirects: the Navigation Timing API measures TTFB from before any redirect starts, so it silently includes that time whether or not this line is showing it, which inflates the gap for anything pointed at a URL that redirects (see "Where these numbers actually come from" above, including the cross-origin caveat where you'll see `redirect=hidden (cross-origin)` instead of a number).
 
 That's all the default log shows — no URL. `--verbose` adds the exact URL requested (including the injected id) and, if the target redirected, where it landed — both between the headline and the title — plus the full raw `Server-Timing` response by the breakdown line, not just whichever one entry `serverTimingMetric` is configured to compare against:
 

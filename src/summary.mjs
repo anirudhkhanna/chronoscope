@@ -21,6 +21,12 @@ export function buildSummary(results, runId, targets) {
       connect_ms: stats(subset.map((r) => r.connect_ms)),
       tls_ms: stats(subset.map((r) => r.tls_ms)),
       download_ms: stats(subset.map((r) => r.download_ms)),
+      redirect_ms: stats(subset.map((r) => r.redirect_ms)),
+      // A hit that redirected cross-origin without Timing-Allow-Origin
+      // reports redirect_ms=0 same as a hit that genuinely never redirected
+      // (see buildBreakdownLine) — this count is what lets printFinalSummary
+      // tell the two apart and flag Redirect avg as a possible undercount.
+      hiddenRedirectCount: subset.filter((r) => r.final_url && r.final_url !== r.url && r.redirect_ms === 0).length,
     };
   }
   const successful = results.filter((r) => !r.error);

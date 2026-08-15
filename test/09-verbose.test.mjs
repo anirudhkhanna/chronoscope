@@ -81,6 +81,83 @@ test('no redirect: --verbose does not print a "redirected" line, and final_url i
   assert.equal(rows[0].final_url, rows[0].url);
 });
 
+test('a redirecting hit shows redirect=Xms on the breakdown line, even without --verbose — TTFB silently includes it otherwise', async () => {
+  const p = writeTempConfig({
+    testUrls: { home: `${testServer.baseUrl}/?redirectTo=${encodeURIComponent(testServer.baseUrl + '/landed')}` },
+  });
+  try {
+    const { tool } = await runForHitsAndGetFiles(['--config=' + p, '--interval=0'], 1);
+    assert.match(tool.stdout, /↳ redirect=\d+ms dns=/);
+  } finally {
+    removeFile(p);
+  }
+});
+
+test('a non-redirecting hit omits redirect= entirely from the breakdown line', async () => {
+  const { tool } = await runForHitsAndGetFiles(['--config=' + configPath, '--interval=0'], 1);
+  assert.doesNotMatch(tool.stdout, /redirect=/);
+  assert.match(tool.stdout, /↳ dns=/);
+});
+
+test('a cross-origin redirect (no Timing-Allow-Origin) shows "redirect=hidden (cross-origin)", not a misleading 0ms', async () => {
+  const otherOriginServer = await startTestServer();
+  const p = writeTempConfig({
+    testUrls: { home: `${testServer.baseUrl}/?redirectTo=${encodeURIComponent(otherOriginServer.baseUrl + '/landed')}` },
+  });
+  try {
+    const { tool, csvFiles } = await runForHitsAndGetFiles(['--config=' + p, '--interval=0'], 1);
+    // Real Chrome behavior, not our own choice: redirectStart/redirectEnd
+    // read 0 for a cross-origin redirect without Timing-Allow-Origin, even
+    // though final_url proves a redirect genuinely happened.
+    assert.match(tool.stdout, /↳ redirect=hidden \(cross-origin\) dns=/);
+    const rows = parseCsv(fs.readFileSync(csvFiles[0], 'utf8'));
+    assert.equal(rows[0].final_url, `${otherOriginServer.baseUrl}/landed`);
+  } finally {
+    removeFile(p);
+    await otherOriginServer.stop();
+  }
+});
+
+test('a target with a hidden (cross-origin) redirect gets a "*" on its Redirect avg and a disclaimer under the table', async () => {
+  const otherOriginServer = await startTestServer();
+  const p = writeTempConfig({
+    testUrls: { home: `${testServer.baseUrl}/?redirectTo=${encodeURIComponent(otherOriginServer.baseUrl + '/landed')}` },
+  });
+  try {
+    const { tool } = await runForHitsAndGetFiles(['--config=' + p, '--interval=0'], 1);
+    const plain = stripAnsi(tool.stdout);
+    assert.match(plain, /home\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+0ms\*/);
+    assert.match(plain, /\(\* at least one hit's redirect time was hidden by the browser/);
+  } finally {
+    removeFile(p);
+    await otherOriginServer.stop();
+  }
+});
+
+test('no disclaimer appears when no target had a hidden redirect', async () => {
+  const { tool } = await runForHitsAndGetFiles(['--config=' + configPath, '--interval=0'], 1);
+  assert.doesNotMatch(tool.stdout, /redirect time was hidden/);
+});
+
+test('the final summary\'s DNS/connect/TLS/wait table also reports Download avg and Redirect avg per target', async () => {
+  const p = writeTempConfig({
+    testUrls: {
+      home: `${testServer.baseUrl}/?redirectTo=${encodeURIComponent(testServer.baseUrl + '/landed')}`,
+      other: `${testServer.baseUrl}/`,
+    },
+  });
+  try {
+    const { tool } = await runForHitsAndGetFiles(['--config=' + p, '--only=all', '--interval=0'], 2);
+    const plain = stripAnsi(tool.stdout);
+    assert.match(plain, /Target\s+DNS avg\s+Connect avg\s+TLS avg\s+Wait avg\s+Download avg\s+Redirect avg/);
+    // home redirected (non-zero Redirect avg), other didn't (0ms) — same table, both rows present.
+    assert.match(plain, /home\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(?!0ms)\d+ms/);
+    assert.match(plain, /other\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+0ms/);
+  } finally {
+    removeFile(p);
+  }
+});
+
 test('default headline format: [time] target id - status (proto), then the page title on its own line', async () => {
   const { tool } = await runForHitsAndGetFiles(['--config=' + configPath, '--interval=0'], 1);
   const plain = stripAnsi(tool.stdout);
