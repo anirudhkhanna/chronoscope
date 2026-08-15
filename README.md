@@ -111,6 +111,43 @@ node chronoscope.mjs --mobile --network=slow-4g
 
 CrUX field data skews mobile-heavy on non-fast connections, so this combination is often your best proxy for what real users actually experience, as opposed to your desktop/office-network baseline.
 
+```bash
+# document-level timing only — disables JS on the page. TTFB/DNS/connect/
+# TLS/download all come from the document response itself, so this strips
+# out JS-driven noise (client-side redirects, rendering, third-party tags)
+node chronoscope.mjs --no-js
+```
+
+## Isolating connection-setup cost from origin response time
+
+Every hit normally opens a brand-new browser context on purpose (see "Why real Chrome" above) — but that means DNS, TCP, and anything sitting between you and the origin (a VPN tunnel, a corporate proxy) get paid fresh on *every single hit*. If that one-time setup cost is large, it looks identical in the numbers to the origin itself being slow — and a manual hard-reload in your browser won't reproduce it, because that reload silently reuses an already-warm connection.
+
+`--reuse-connection` keeps one page open per target for the whole run and reloads it (a fresh unique id each time, logged exactly like any other hit) instead of opening a new context per hit — so only the very first hit on that page pays full connection setup, the same way a real browser tab would behave on a second, third, fourth reload. With multiple targets, each one gets its own dedicated page, so rotating between them never makes one target's connection jump to another's origin — a hit to target A ten seconds after the last one, with target B and C interleaved in between, still reuses A's own warm connection.
+
+```bash
+# reuse a persistent connection per target — works with one target or many
+node chronoscope.mjs --only=home --reuse-connection
+node chronoscope.mjs --only=home,pdp --reuse-connection
+
+# combine with --pause-on-alarm/--manual/--devtools to inspect in the browser
+# between hits — the page never closes, so instead of closing a window to
+# continue, press Enter in this terminal
+node chronoscope.mjs --only=home --reuse-connection --pause-on-alarm --devtools
+```
+
+It also applies Empty-Cache-and-Hard-Reload semantics (the same CDP calls as DevTools' own hard-reload button) to every navigation, so the *only* thing ever reused across hits is the TCP connection itself — never a cached response.
+
+If you'd rather not babysit the terminal, `--new-tab-on-alarm` runs unattended instead of pausing: on an alarming hit it leaves that tab exactly as it is (its DevTools Network panel, if `--devtools` is active, still holds just that one request) and opens a fresh tab in the same context — sharing the same reused connection — to keep testing from. Come back later to a row of tabs, one per alarm, each ready to inspect.
+
+```bash
+# run unattended and collect one tab per alarm for later inspection
+node chronoscope.mjs --only=home --reuse-connection --new-tab-on-alarm --devtools
+```
+
+There's no cap on how many tabs accumulate — each is real Chrome memory, so keep an eye on it over a long run.
+
+When you're ready to actually dig into a tab, the first Ctrl+C pauses the run instead of exiting — Chrome and every kept-open tab are left exactly as they are, with no new tabs popping up mid-inspection. Press Enter in the terminal to resume, or Ctrl+C again while paused to stop for good and write the final summary.
+
 ## Debugging a specific hit yourself
 
 By default the tool runs fully headless — no window ever appears, so it can't steal focus or interrupt whatever else you're doing. When you actually want to look at what happened:
@@ -133,6 +170,39 @@ node chronoscope.mjs --pause-on-alarm --devtools
 ```
 
 One thing worth knowing: DevTools attaches asynchronously, so the very first document request can be missed by the Network panel if you reload too fast right when the window opens — the tool already waits for DevTools to attach before its own navigation fires, but if you want to inspect a *specific* reload yourself, just hit Cmd+R (or Ctrl+R) once the window is open; by then DevTools is definitely attached.
+
+All three of `--manual`/`--devtools`/`--pause-on-alarm` also combine with `--reuse-connection` (see above) — the page just never closes between hits there, so resuming is a keypress in the terminal instead of closing the window.
+
+## Flag reference: what depends on what
+
+There are enough flags now, with enough of them implying or requiring each other, that it's worth laying out the full dependency picture in one place rather than piecing it together across sections above.
+
+**Independent — combine freely, nothing implies or requires anything else:**
+
+- `--config`, `--only`
+- `--interval`, `--jitter`
+- `--alarm-gap`, `--alarm-ratio`
+- `--network=<profile>` — or `--network-rtt`+`--network-down`+`--network-up` together, which override it
+- `--no-js`
+- `--mobile` — or `--device=<name>`, which implies `--mobile`
+
+**Visibility chain — each one implies everything before it:**
+
+```
+--headed  →  --manual  →  --devtools
+                       →  --pause-on-alarm
+```
+
+- `--headed` shows a real, visible window (pushed off-screen so it stays out of your way). Nothing pauses; it just runs on the normal timed interval where you can watch it.
+- `--manual` implies `--headed`. Pauses after *every* hit until you close that window (or quit Chrome) — no timed interval, since your own inspection is the gap.
+- `--devtools` implies `--manual`. Same pause-every-hit behavior, plus DevTools is already open on that window.
+- `--pause-on-alarm` implies `--manual` too, but narrows *when* it pauses to only hits that actually trip an alarm — everything else proceeds automatically on the normal interval. Composes with `--devtools` (pause only on alarms, but see the Network tab when it happens).
+
+**`--reuse-connection` and what builds on top of it:**
+
+- Works with any number of targets — each one gets its own dedicated persistent page, so they never interfere with each other's connection warmth.
+- Combines with any flag in the visibility chain above, but changes *how* pausing works: instead of waiting for you to close the window, it waits for a keypress (Enter) on the same page, since the page is never supposed to close — that's the whole point of reusing its connection.
+- `--new-tab-on-alarm` requires `--reuse-connection`. It forces a visible window like `--manual` does, but — unlike everything in the visibility chain — doesn't pause by default. This is also the one exception to that chain: under `--new-tab-on-alarm`, `--devtools` no longer implies pausing either. It still opens DevTools on every tab (including the fresh ones opened after each alarm); it just doesn't force you to be present for it, since the whole point is to collect evidence unattended. A first Ctrl+C pauses the entire run instead of exiting — Chrome and every kept-open tab are left untouched — so you can actually sit and inspect a tab without new ones appearing mid-look; a second Ctrl+C while already paused stops for good.
 
 ## Useful flag combinations
 

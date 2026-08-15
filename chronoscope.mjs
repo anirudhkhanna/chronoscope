@@ -128,7 +128,7 @@ Config file (JSON), default path: ./${DEFAULT_CONFIG_PATH} — override with --c
 
 Options:
   --config=<path>           Path to the config file described above.
-  --only=<group|name,...>  Which targets to hit: a group name, a specific
+  --only=<group|name,...>   Which targets to hit: a group name, a specific
                             target name, "all" (default), or a comma list of
                             any of those — all derived from your config's
                             "testUrls". An invalid value's error message
@@ -154,6 +154,36 @@ Options:
                             (overrides --network).
   --network-down=<kbps>     Custom throttle: download cap in kbps.
   --network-up=<kbps>       Custom throttle: upload cap in kbps.
+  --no-js                   Disable JavaScript on the page. TTFB/DNS/connect/
+                            TLS/download all come from the document response
+                            itself and don't depend on scripts running, so
+                            this strips out JS-driven noise (client-side
+                            redirects, rendering, third-party tags) when
+                            you're only after document-level timing.
+  --reuse-connection        Keep one persistent page open per target for the
+                            whole run and navigate it to a fresh URL (unique
+                            id, logged exactly like any other hit) each time,
+                            instead of opening a brand-new browser context
+                            per hit. With multiple targets, each gets its own
+                            dedicated page — rotating between them never
+                            makes one target's connection jump to another's
+                            origin. Also applies Empty-Cache-and-Hard-Reload
+                            semantics (same CDP calls as DevTools' hard-reload
+                            button) to every navigation, so nothing but the
+                            TCP connection itself is reused. This approximates
+                            a hand reload in an already-open tab — Chrome
+                            reuses its already-established connection —
+                            rather than a first-time visitor who always pays
+                            full connection setup. Useful for isolating
+                            one-time connection-setup cost (e.g. a VPN's
+                            per-connection tax) from a site's actual response
+                            time. Combines with --manual/--devtools/--pause-on-alarm
+                            — see --manual below for how pausing differs in
+                            this mode. Needs an interactive terminal attached
+                            to stdin when combined with those (it waits on a
+                            keypress). Ctrl+C stops the run — except under
+                            --new-tab-on-alarm, where a first Ctrl+C pauses
+                            instead; see --new-tab-on-alarm below.
   --mobile                  Emulate a mobile Android/Chrome device instead of
                             desktop (viewport, touch, device pixel ratio, and
                             a Chrome-Mobile User-Agent using your real Chrome's
@@ -171,6 +201,11 @@ Options:
                             close that window (or quit Chrome entirely); no
                             timed interval is applied between requests in
                             this mode, since your own inspection is the gap.
+                            With --reuse-connection, the page is never closed
+                            between hits (that's the whole point — a warm
+                            connection), so instead it pauses for a keypress
+                            (Enter) in this terminal, then resumes reloading
+                            the same page/connection.
   --devtools                Auto-open DevTools alongside the page (implies
                             --manual), via Chrome's own
                             --auto-open-devtools-for-tabs. Click the Network
@@ -182,7 +217,27 @@ Options:
                             everything else closes and proceeds automatically
                             on the normal timed interval, like a non-manual
                             run. Combine with --devtools to only get DevTools
-                            in your face when something's actually wrong.
+                            in your face when something's actually wrong. See
+                            --manual above for how "pause" differs when
+                            combined with --reuse-connection.
+  --new-tab-on-alarm        Requires --reuse-connection. On an alarming hit,
+                            leave that tab exactly as it is (its DevTools
+                            Network panel, if --devtools is active, keeps
+                            just that one request) and open a fresh tab in
+                            the same context — sharing the same reused
+                            connection — to keep testing from. Unlike
+                            --pause-on-alarm, this doesn't pause automatically:
+                            run it unattended for a while and come back to a
+                            row of tabs, one per alarm, each ready to inspect.
+                            No cap on how many tabs accumulate — each one is
+                            real Chrome memory, so watch it on a long run.
+                            Forces a visible window, same as --manual. A
+                            first Ctrl+C pauses the run instead of exiting —
+                            Chrome and every kept-open tab are left exactly as
+                            they are — so you can actually sit and inspect a
+                            tab without new ones appearing mid-look. Press
+                            Enter in this terminal to resume, or Ctrl+C again
+                            (while already paused) to stop for good.
   --help                    Show this message.
 `;
 
@@ -190,6 +245,30 @@ const rawArgv = process.argv.slice(2);
 if (rawArgv.includes('--help')) {
   console.log(HELP_TEXT);
   process.exit(0);
+}
+
+// Every flag this tool recognizes, kept as a flat list here rather than
+// derived from HELP_TEXT — parseArgs() itself doesn't validate flag *names*,
+// just extracts whatever --key=value pairs are present, so a typo like
+// --reuse-connecton would otherwise be silently accepted and simply do
+// nothing, with no indication anything was wrong.
+const KNOWN_FLAGS = new Set([
+  'config', 'only', 'interval', 'jitter', 'alarm-gap', 'alarm-ratio',
+  'network', 'network-rtt', 'network-down', 'network-up', 'no-js',
+  'reuse-connection', 'mobile', 'device', 'headed', 'manual', 'devtools',
+  'pause-on-alarm', 'new-tab-on-alarm', 'help',
+]);
+const unknownFlags = Object.keys(parseArgs(rawArgv)).filter((f) => !KNOWN_FLAGS.has(f));
+if (unknownFlags.length > 0) {
+  // Deliberately the very first thing printed, before config loading even
+  // gets a chance to run (and possibly fail for an unrelated reason) — a
+  // misspelled flag should never go unnoticed just because something else
+  // happened to also go wrong in the same run. Hardcoded ANSI (bold red)
+  // rather than the alarmize() helper defined later in the file: that
+  // helper's color table isn't initialized yet at this point in module
+  // evaluation, and calling it here would throw.
+  const plural = unknownFlags.length === 1 ? '' : 's';
+  console.log(`\x1b[1m\x1b[31m!! Unrecognized flag${plural}: ${unknownFlags.map((f) => `--${f}`).join(', ')} — check spelling, or run --help for the full list. !!\x1b[0m`);
 }
 
 function findConfigPath(argv) {
@@ -508,21 +587,42 @@ function resolveRuntimeConfig(argv) {
     deviceProfile = MOBILE_PRESETS[DEFAULT_MOBILE_PRESET];
   }
 
+  const disableJs = Boolean(cli['no-js']);
+  const reuseConnection = Boolean(cli['reuse-connection']);
   const devtools = Boolean(cli.devtools);
   const pauseOnAlarm = Boolean(cli['pause-on-alarm']);
+  const newTabOnAlarm = Boolean(cli['new-tab-on-alarm']);
+  if (newTabOnAlarm && !reuseConnection) {
+    console.error('--new-tab-on-alarm requires --reuse-connection — it only makes sense when hits are landing on a shared, reused page to begin with.');
+    process.exit(1);
+  }
   // Popping DevTools open, or pausing only for alarms, only makes sense if
-  // you're actually there to look — both imply --manual.
-  const manual = Boolean(cli.manual || devtools || pauseOnAlarm);
+  // you're actually there to look — both imply --manual. This holds
+  // regardless of --reuse-connection: main()'s loop picks the actual pause
+  // mechanism (wait for a window close vs. wait for a terminal keypress)
+  // based on reuseConnection, since the page never closes between hits there.
+  // Exception: with --new-tab-on-alarm, plain --devtools no longer implies
+  // pausing — its whole point is to have DevTools already attached and
+  // recording on every tab (including the fresh ones opened after an alarm)
+  // for LATER, unattended review, not to force you to be present right now.
+  // --manual or --pause-on-alarm, passed explicitly, still force pausing
+  // regardless — those are deliberate asks, not an automatic side effect of
+  // wanting DevTools open.
+  // --new-tab-on-alarm doesn't pause anything itself, but it's just as
+  // pointless headless (nothing to come back and look at), so it forces the
+  // same visible-window treatment.
+  const manual = Boolean(cli.manual || (devtools && !newTabOnAlarm) || pauseOnAlarm);
+  const needsWindow = manual || newTabOnAlarm;
   // Manual inspection needs a visible window — --manual implies --headed.
-  const headless = (cli.headed || manual) ? false : TOOL_DEFAULTS.headless;
+  const headless = (cli.headed || needsWindow) ? false : TOOL_DEFAULTS.headless;
   // --headed alone still keeps the window out of your way off-screen; --manual
   // means you need to actually see and click on it, so never push it off-screen.
-  const pushOffscreen = TOOL_DEFAULTS.windowOffscreen && !manual;
+  const pushOffscreen = TOOL_DEFAULTS.windowOffscreen && !needsWindow;
 
   return {
     targets, intervalMs, jitterMs, alarmGapMs, alarmGapRatio,
     networkProfileName, networkProfile, deviceProfileName, deviceProfile,
-    headless, manual, pushOffscreen, devtools, pauseOnAlarm,
+    headless, manual, pushOffscreen, devtools, pauseOnAlarm, disableJs, reuseConnection, newTabOnAlarm,
   };
 }
 
@@ -583,6 +683,15 @@ async function launchBrowser(headless, pushOffscreen, devtools) {
     channel: 'chrome',
     headless,
     args,
+    // Playwright's default SIGINT/SIGTERM handling kills the Chrome process
+    // itself, racing our own SIGINT handler in main() and forcing an
+    // immediate close no matter what we want to do on that signal. Disabling
+    // it makes shutdown entirely our own responsibility (see finalizeAndExit)
+    // — necessary so --new-tab-on-alarm can pause on a first Ctrl+C, leaving
+    // Chrome and every kept-open tab untouched, instead of Playwright yanking
+    // the whole browser out from under it regardless of what we decide.
+    handleSIGINT: false,
+    handleSIGTERM: false,
   });
 
   // viewport: null disables Playwright's own device-metrics override (its
@@ -644,7 +753,49 @@ function buildTaggedUA(realUA, deviceProfile) {
   return `${base} ${SITE.uaSuffix}`;
 }
 
-async function hitOnce(browser, target, id, userAgent, alarmGapMs, alarmGapRatio, networkProfileName, networkProfile, deviceProfileName, deviceProfile, manual, devtools, headless, headedViewport, pauseOnAlarm) {
+// One-time per-page setup: devtools attach + CDP throttle/cache-disable.
+// Shared by hitOnce's initial page creation AND --new-tab-on-alarm's
+// mid-run replacement page, so the two can't drift out of sync with each
+// other — a new tab opened after an alarm needs exactly the same setup a
+// brand-new run's first page gets, not a stripped-down version of it.
+async function setupPage(context, page, devtools, networkProfile, reuseConnection) {
+  if (devtools) {
+    // --auto-open-devtools-for-tabs opens DevTools asynchronously, racing
+    // our own immediate navigation — without this wait, the document
+    // request (the one thing you actually want to see) fires before
+    // DevTools has finished attaching and starts recording, and is gone
+    // for good (Network panel doesn't retroactively show missed events).
+    await waitForDevtoolsAttach(context, page);
+  }
+
+  if (networkProfile || reuseConnection) {
+    const cdp = await context.newCDPSession(page);
+    if (networkProfile) {
+      // Same CDP call Chrome DevTools' own Network tab throttling uses, so
+      // this affects the full request lifecycle (connect/TLS/response/
+      // download) exactly as a real slow connection would, not just a
+      // fixed delay tacked onto the end.
+      await cdp.send('Network.emulateNetworkConditions', {
+        offline: false,
+        latency: networkProfile.rttMs,
+        downloadThroughput: (networkProfile.downloadKbps * 1000) / 8,
+        uploadThroughput: (networkProfile.uploadKbps * 1000) / 8,
+      });
+    }
+    if (reuseConnection) {
+      // Empty Cache and Hard Reload semantics — same CDP calls DevTools'
+      // own hard-reload button uses (clear what's cached, then disable
+      // the cache going forward) — but kept in effect for every
+      // navigation on this page for the rest of the run, not a one-off
+      // action. Doesn't touch the TCP connection itself, so connection
+      // reuse (the whole point of this mode) is unaffected.
+      await cdp.send('Network.clearBrowserCache');
+      await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+    }
+  }
+}
+
+async function hitOnce(browser, target, id, userAgent, alarmGapMs, alarmGapRatio, networkProfileName, networkProfile, deviceProfileName, deviceProfile, manual, devtools, headless, headedViewport, pauseOnAlarm, disableJs, reuseConnection, persistent) {
   const timestamp = nowIso();
   const url = new URL(target.url);
   url.searchParams.set(SITE.queryParam, id);
@@ -680,45 +831,39 @@ async function hitOnce(browser, target, id, userAgent, alarmGapMs, alarmGapRatio
   let page;
   let stayOpen = false;
   try {
-    // Fresh context per request: separate cookie jar/cache/connection
-    // partition, so every hit approximates a first-time visitor rather than
-    // reusing a warm connection from the previous request.
-    context = await browser.newContext({
-      userAgent,
-      locale: SITE.locale,
-      timezoneId: SITE.timezoneId,
-      viewport: deviceProfile ? deviceProfile.viewport : (headless ? TOOL_DEFAULTS.viewport : headedViewport),
-      deviceScaleFactor: deviceProfile ? deviceProfile.deviceScaleFactor : 1,
-      isMobile: Boolean(deviceProfile),
-      hasTouch: Boolean(deviceProfile),
-      // Sent with every request from this context, including the doc call —
-      // config-configurable so different brands can add their own identifying
-      // header (e.g. a bypass token for a WAF rule) without editing this file.
-      extraHTTPHeaders: SITE.headers,
-    });
-    page = await context.newPage();
-
-    if (devtools) {
-      // --auto-open-devtools-for-tabs opens DevTools asynchronously, racing
-      // our own immediate navigation — without this wait, the document
-      // request (the one thing you actually want to see) fires before
-      // DevTools has finished attaching and starts recording, and is gone
-      // for good (Network panel doesn't retroactively show missed events).
-      await waitForDevtoolsAttach(context, page);
-    }
-
-    if (networkProfile) {
-      // Same CDP call Chrome DevTools' own Network tab throttling uses, so
-      // this affects the full request lifecycle (connect/TLS/response/
-      // download) exactly as a real slow connection would, not just a fixed
-      // delay tacked onto the end.
-      const cdp = await context.newCDPSession(page);
-      await cdp.send('Network.emulateNetworkConditions', {
-        offline: false,
-        latency: networkProfile.rttMs,
-        downloadThroughput: (networkProfile.downloadKbps * 1000) / 8,
-        uploadThroughput: (networkProfile.uploadKbps * 1000) / 8,
+    if (persistent) {
+      // --reuse-connection: navigate the SAME page again instead of opening a
+      // fresh context — Chrome keeps whatever connection it already
+      // established to this origin, the same way a hand reload in an
+      // already-open tab does. Nothing below that's tied to context/page
+      // creation (devtools attach, CDP throttle) needs redoing.
+      ({ context, page } = persistent);
+    } else {
+      // Fresh context per request: separate cookie jar/cache/connection
+      // partition, so every hit approximates a first-time visitor rather than
+      // reusing a warm connection from the previous request. (Not with
+      // --reuse-connection — see above.)
+      context = await browser.newContext({
+        userAgent,
+        locale: SITE.locale,
+        timezoneId: SITE.timezoneId,
+        viewport: deviceProfile ? deviceProfile.viewport : (headless ? TOOL_DEFAULTS.viewport : headedViewport),
+        deviceScaleFactor: deviceProfile ? deviceProfile.deviceScaleFactor : 1,
+        isMobile: Boolean(deviceProfile),
+        hasTouch: Boolean(deviceProfile),
+        // Sent with every request from this context, including the doc call —
+        // config-configurable so different brands can add their own identifying
+        // header (e.g. a bypass token for a WAF rule) without editing this file.
+        extraHTTPHeaders: SITE.headers,
+        // TTFB/DNS/connect/TLS/download all come from the Navigation Timing
+        // entry for the document response — none of it depends on JS executing.
+        // Disabling it removes JS-driven noise (redirects, client-side
+        // rendering, third-party scripts) from a number that was never
+        // supposed to depend on them.
+        javaScriptEnabled: !disableJs,
       });
+      page = await context.newPage();
+      await setupPage(context, page, devtools, networkProfile, reuseConnection);
     }
 
     // domcontentloaded, not load: TTFB/DNS/connect/TLS/download all come from
@@ -789,8 +934,10 @@ async function hitOnce(browser, target, id, userAgent, alarmGapMs, alarmGapRatio
     // human and close only once they're done inspecting — auto-closing here
     // would defeat the whole point. With --pause-on-alarm, that only holds
     // for hits that actually tripped an alarm; anything else closes and
-    // proceeds automatically like a normal run.
-    stayOpen = manual && (!pauseOnAlarm || record.alarm);
+    // proceeds automatically like a normal run. --reuse-connection always
+    // stays open too — the caller hands it back into the next hitOnce() call
+    // instead of waiting on a human.
+    stayOpen = reuseConnection || (manual && (!pauseOnAlarm || record.alarm));
     if (context && !stayOpen) await context.close().catch(() => {});
   }
 
@@ -815,6 +962,18 @@ function waitForManualClose(page, browser) {
     function onDisconnected() { done('browser'); }
     page.once('close', onClose);
     browser.once('disconnected', onDisconnected);
+  });
+}
+
+// --reuse-connection --pause-on-alarm: the page itself never closes between
+// hits (that would throw away the whole point — the warm connection), so
+// resuming can't be "wait for the window to close" like plain --manual does.
+// Wait for a terminal keypress (Enter) instead; the browser window is left
+// exactly as it was for inspection.
+function waitForKeypress() {
+  return new Promise((resolve) => {
+    process.stdin.resume();
+    process.stdin.once('data', () => resolve());
   });
 }
 
@@ -1082,7 +1241,7 @@ async function main() {
   const {
     targets, intervalMs, jitterMs, alarmGapMs, alarmGapRatio,
     networkProfileName, networkProfile, deviceProfileName, deviceProfile,
-    headless, manual, pushOffscreen, devtools, pauseOnAlarm,
+    headless, manual, pushOffscreen, devtools, pauseOnAlarm, disableJs, reuseConnection, newTabOnAlarm,
   } = resolveRuntimeConfig(rawArgv);
 
   fs.mkdirSync(TOOL_DEFAULTS.logDir, { recursive: true });
@@ -1109,23 +1268,47 @@ async function main() {
   boxLine('Device', deviceProfile
     ? `${deviceProfileName} — ${deviceProfile.label}  (${deviceProfile.viewport.width}x${deviceProfile.viewport.height} @${deviceProfile.deviceScaleFactor}x, touch)`
     : 'desktop');
-  if (manual) {
+  if (disableJs) {
+    boxLine('JavaScript', 'disabled — document timing only, no scripts execute on the page');
+  }
+  if (reuseConnection) {
+    boxLine('Connection', targets.length === 1
+      ? 'reused — one persistent page for the whole run (approximates a hand reload, not a first-time visitor)'
+      : `reused — one persistent page per target (${targets.length} total), each approximating its own hand reload`);
+  }
+  if (manual && !reuseConnection) {
     boxLine('Mode', (pauseOnAlarm
       ? 'manual, alarms-only — pauses only on hits that trip an alarm'
       : 'manual — pauses after every hit, no timed interval') +
       (devtools ? '; DevTools auto-opens' : ''));
   }
+  if (manual && reuseConnection) {
+    boxLine('Mode', (pauseOnAlarm
+      ? 'reuse-connection, alarms-only — pauses only on hits that trip an alarm'
+      : 'reuse-connection, manual — pauses after every hit, no timed interval') +
+      ' (same page — press Enter here to resume)' +
+      (devtools ? '; DevTools auto-opens' : ''));
+  }
+  if (newTabOnAlarm) {
+    boxLine('On alarm', 'keep this tab open and continue reloading on a fresh one — no pause, tabs accumulate for later inspection');
+  }
 
   const results = [];
   let shuttingDown = false;
+  // --new-tab-on-alarm only: true between a first Ctrl+C and either a resume
+  // keypress or a second Ctrl+C. See the SIGINT handler and the pause check
+  // in the main loop below.
+  let paused = false;
 
-  // Playwright installs its own SIGINT/SIGTERM handler to kill the spawned
-  // Chrome process, which calls process.exit() itself shortly after the
-  // signal — racing our own cleanup. To win that race, this handler must be
-  // registered before launchBrowser() (Node calls same-event listeners in
-  // registration order) and must do all critical work SYNCHRONOUSLY, with no
-  // `await`, before calling process.exit() ourselves. Any in-flight request
-  // is simply abandoned; the summary reflects whatever completed so far.
+  // The critical file writes (summary JSON) still happen synchronously,
+  // before anything async — that part of the original race concern doesn't
+  // go away just because Playwright no longer competes for this signal.
+  // What's new: since handleSIGINT/handleSIGTERM are now false in
+  // launchBrowser(), Playwright will NOT close Chrome for us on this signal
+  // — closing it ourselves is now required, not optional, and it's safe to
+  // await that close here specifically because nothing else is racing this
+  // exit anymore (unlike before, when Playwright's own competing handler
+  // could fire process.exit() out from under an `await`).
   function finalizeAndExit(exitCode) {
     if (shuttingDown) {
       process.exit(exitCode);
@@ -1139,9 +1322,29 @@ async function main() {
     console.log(`Per-request CSV:   ${csvPath}`);
     console.log(`Per-request JSONL: ${jsonlPath}`);
     console.log(`Summary JSON:      ${summaryPath}`);
-    process.exit(exitCode);
+    // No artificial timeout here — an earlier version raced this against a
+    // 3s sleep(), which sounds like a reasonable safety net but isn't: real
+    // Chrome shutdown can genuinely take a few seconds (see the "dead
+    // browser connection" caveat elsewhere), so the race would sometimes
+    // fire process.exit() before browser.close() actually finished,
+    // orphaning the Chrome process entirely — confirmed via `ps aux` during
+    // testing. `shuttingDown` above is the real escape hatch: if this
+    // genuinely hangs, a second Ctrl+C exits immediately regardless.
+    (browser ? browser.close().catch(() => {}) : Promise.resolve()).finally(() => process.exit(exitCode));
   }
-  process.on('SIGINT', () => finalizeAndExit(0));
+  process.on('SIGINT', () => {
+    // First Ctrl+C under --new-tab-on-alarm pauses instead of exiting —
+    // debugging a tab is hard when new ones keep appearing mid-inspection,
+    // and exiting outright was worse: it took every kept-open tab down with
+    // it. A second Ctrl+C (paused already, so this branch is skipped) falls
+    // through to a real, final finalizeAndExit.
+    if (newTabOnAlarm && !paused && !shuttingDown) {
+      paused = true;
+      console.log(boldize('\n>>> Paused — Chrome and every kept-open tab remain exactly as they are. Press Enter here to resume, or Ctrl+C again to stop for good and write the final summary.\n'));
+      return;
+    }
+    finalizeAndExit(0);
+  });
   process.on('SIGTERM', () => finalizeAndExit(0));
 
   let { browser, realUA, headedViewport, screen } = await launchBrowser(headless, pushOffscreen, devtools);
@@ -1153,18 +1356,51 @@ async function main() {
   boxLine('User-Agent', taggedUA);
   boxBottom();
 
+  // Only populated under --reuse-connection — one entry per target, each
+  // holding that target's own dedicated {context, page}. hitOnce() hands
+  // its context/page back here instead of closing them, and the next hit
+  // for THAT SAME target passes it straight back in instead of opening a
+  // fresh context — a different target gets its own separate entry, so
+  // rotating through several targets never makes one target's connection
+  // jump between origins. Cleared entirely whenever the browser itself gets
+  // relaunched, since a dead browser takes every context/page with it.
+  let persistentByTarget = new Map();
+  // --new-tab-on-alarm: count of tabs currently kept open for inspection,
+  // across all targets combined. Reset alongside `persistentByTarget` on a
+  // browser relaunch — a dead Chrome takes every kept-open tab down with it,
+  // so a stale count would be misleading.
+  let newTabCount = 0;
+
   while (true) {
     for (const target of targets) {
+      // --new-tab-on-alarm: block here, before firing the next hit, while
+      // paused — an in-flight hit is never interrupted mid-request, only the
+      // NEXT one is held back, so nothing gets abandoned half-done just to
+      // honor a pause. Resumes on a keypress; a second Ctrl+C while paused
+      // hits the `finalizeAndExit` branch of the SIGINT handler instead
+      // (`paused` is already true there, so this loop is moot at that point
+      // — process.exit() takes down everything, including this dangling wait).
+      while (paused) {
+        await waitForKeypress();
+        if (paused) {
+          paused = false;
+          console.log(boldize('>>> Resuming...\n'));
+        }
+      }
+      if (shuttingDown) return;
+
       if (!browser.isConnected()) {
         console.log('Chrome disconnected unexpectedly, relaunching...');
         ({ browser, realUA, headedViewport } = await launchBrowser(headless, pushOffscreen, devtools));
         taggedUA = buildTaggedUA(realUA, deviceProfile);
+        persistentByTarget.clear();
+        newTabCount = 0;
       }
 
       const id = shortId();
       let { record, context, page } = await hitOnce(
         browser, target, id, taggedUA, alarmGapMs, alarmGapRatio,
-        networkProfileName, networkProfile, deviceProfileName, deviceProfile, manual, devtools, headless, headedViewport, pauseOnAlarm
+        networkProfileName, networkProfile, deviceProfileName, deviceProfile, manual, devtools, headless, headedViewport, pauseOnAlarm, disableJs, reuseConnection, persistentByTarget.get(target.name)
       );
       // A dead browser connection (most likely after a manual-mode Chrome
       // quit — real Chrome's shutdown can leave it in a zombie state for
@@ -1175,19 +1411,50 @@ async function main() {
         console.log('Chrome connection was lost — relaunching and retrying this request...');
         ({ browser, realUA, headedViewport } = await launchBrowser(headless, pushOffscreen, devtools));
         taggedUA = buildTaggedUA(realUA, deviceProfile);
+        persistentByTarget.clear();
+        newTabCount = 0;
         ({ record, context, page } = await hitOnce(
           browser, target, id, taggedUA, alarmGapMs, alarmGapRatio,
-          networkProfileName, networkProfile, deviceProfileName, deviceProfile, manual, devtools, headless, headedViewport, pauseOnAlarm
+          networkProfileName, networkProfile, deviceProfileName, deviceProfile, manual, devtools, headless, headedViewport, pauseOnAlarm, disableJs, reuseConnection, persistentByTarget.get(target.name)
         ));
       }
       results.push(record);
       logRequest(record, csvPath, jsonlPath);
       printRunningAggregate(results);
 
-      // page/context are only non-null here if hitOnce() decided this hit
-      // should stay open — already accounts for --pause-on-alarm, so no need
-      // to re-check manual/alarm status here.
-      if (page && context) {
+      if (reuseConnection) {
+        // hitOnce() always hands the context/page back in this mode instead
+        // of closing them — hold onto them so the next hit for THIS target
+        // reuses the same (already-connected) page instead of opening a new
+        // one. Keyed by target name so rotating through multiple targets
+        // gives each one its own dedicated, independently warm connection.
+        persistentByTarget.set(target.name, { context, page });
+      }
+
+      if (newTabOnAlarm && record.alarm) {
+        // Leave this tab exactly as it is — if --devtools is active, its
+        // Network panel still holds just this one alarming request,
+        // untouched by any future reload — and open a fresh tab in the SAME
+        // context to keep testing from. Same context, not a new one, so the
+        // new tab still shares the reused connection's warm socket pool.
+        newTabCount += 1;
+        const newPage = await context.newPage();
+        await setupPage(context, newPage, devtools, networkProfile, reuseConnection);
+        persistentByTarget.set(target.name, { context, page: newPage });
+        console.log(boldize(`>>> ALARM on "${target.name}" — keeping this tab open for inspection and continuing on a fresh one (${newTabCount} tab${newTabCount === 1 ? '' : 's'} kept open so far).\n`));
+      }
+
+      // Same "should this hit pause?" condition regardless of reuseConnection
+      // — --pause-on-alarm restricts it to alarming hits, otherwise --manual
+      // (or --devtools) pauses on every hit. What differs by reuseConnection
+      // is HOW: close-and-reopen (plain --manual) vs. a terminal keypress on
+      // the same never-closed page (--reuse-connection).
+      const shouldPause = manual && (!pauseOnAlarm || record.alarm);
+      if (shouldPause && reuseConnection) {
+        console.log(boldize(`>>> ${record.alarm ? 'ALARM on' : 'Hit for'} "${target.name}" — Chrome is still open on the same page for you to inspect (DevTools, Network tab, whatever you need). Press Enter here to resume reloading.\n`));
+        await waitForKeypress();
+        console.log('');
+      } else if (shouldPause) {
         console.log(boldize(`>>> Chrome is open for "${target.name}" — close the window (or quit Chrome) to continue to the next request.\n`));
         const closedVia = await waitForManualClose(page, browser);
         if (closedVia === 'browser') console.log('Chrome was quit.');
