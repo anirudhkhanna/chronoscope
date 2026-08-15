@@ -9,12 +9,9 @@ A synthetic TTFB monitor that drives real, locally installed Chrome to repeatedl
 
 It optionally compares that TTFB against a `Server-Timing` header your app or CDN adds (e.g. `Server-Timing: origin-rtt;dur=495`), so every hit tells you both "what the browser measured" and "what your origin says it took" side by side.
 
-<table>
-  <tr>
-    <td><img src="https://github.com/user-attachments/assets/c7b613eb-099e-4259-a8ff-3f8907a6b96d" alt="Live run, --verbose" width="100%" /></td>
-    <td><img src="https://github.com/user-attachments/assets/a49ac20f-50a5-459a-ba5f-ceae1295bdeb" alt="Final summary, --verbose" width="100%" /></td>
-  </tr>
-</table>
+<img src="https://github.com/user-attachments/assets/81183ef9-2992-457f-913f-0a8cbd63fcee" alt="Live run, --verbose" width="100%" />
+
+<img src="https://github.com/user-attachments/assets/4e045082-ee64-4a73-8906-ef87fd9394f6" alt="Final summary, --verbose" width="100%" />
 
 ## Why real Chrome, not a simple HTTP client
 
