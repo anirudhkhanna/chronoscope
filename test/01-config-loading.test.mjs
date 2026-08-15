@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startTestServer } from './server.mjs';
-import { writeTempConfig, removeFile, spawnTool, snapshotLogFiles, cleanupNewLogFiles, runForHits, runForHitsAndGetFiles, parseCsv } from './helpers.mjs';
+import { writeTempConfig, removeFile, spawnTool, snapshotLogFiles, cleanupNewLogFiles, runForHits, runForHitsAndGetFiles, parseCsv, sleep } from './helpers.mjs';
 import fs from 'fs';
 import path from 'path';
 import { REPO_ROOT } from './helpers.mjs';
@@ -112,7 +112,7 @@ test('config: colliding target names auto-rename with a warning', async () => {
   }
 });
 
-test('config: custom headers are actually sent with every request', async () => {
+test('config: custom headers are sent on the first-party (document) request', async () => {
   const p = writeTempConfig({
     name: 'Headers',
     headers: { 'X-Chronoscope-Test': 'hello-world' },
@@ -124,6 +124,34 @@ test('config: custom headers are actually sent with every request', async () => 
     assert.equal(received['x-chronoscope-test'], 'hello-world');
   } finally {
     removeFile(p);
+  }
+});
+
+test('config: custom headers are NOT sent to third-party subresources', async () => {
+  const thirdParty = await startTestServer();
+  try {
+    const p = writeTempConfig({
+      name: 'Headers',
+      headers: { 'X-Chronoscope-Test': 'hello-world' },
+      testUrls: {
+        home: `${testServer.baseUrl}/?crossOriginImg=${encodeURIComponent(`${thirdParty.baseUrl}/img.png`)}`,
+      },
+    });
+    try {
+      await runForHits(['--config=' + p, '--interval=0'], 1);
+      // The <img> request fires as soon as the parser sees the tag, but isn't
+      // necessarily done by the time domcontentloaded (and so hitOnce) has
+      // returned — give it a moment to actually land on the third-party server.
+      await sleep(500);
+      assert.equal(testServer.getLastHeaders()['x-chronoscope-test'], 'hello-world', 'first-party document request should still get the header');
+      const thirdPartyHeaders = thirdParty.getLastHeaders();
+      assert.ok(thirdPartyHeaders, 'expected the third-party server to have actually received the image request');
+      assert.equal(thirdPartyHeaders['x-chronoscope-test'], undefined, 'third-party request should NOT get the custom header');
+    } finally {
+      removeFile(p);
+    }
+  } finally {
+    await thirdParty.stop();
   }
 });
 

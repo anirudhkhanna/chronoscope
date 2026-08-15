@@ -26,8 +26,9 @@ Config file (JSON), default path: ./${DEFAULT_CONFIG_PATH} — override with --c
   that comparison entirely), "queryParam" (default "${TOOL_DEFAULTS.queryParam}"),
   "alarmGapMs"/"alarmGapRatio" (defaults for --alarm-gap/--alarm-ratio below),
   "headers" (an object of header-name -> string value, sent with every
-  request from the browser context, including the doc call — e.g. a WAF
-  bypass token or an internal-traffic marker header).
+  first-party request, including the doc call, but never to third-party
+  subresources like fonts/analytics — e.g. a WAF bypass token or an
+  internal-traffic marker header).
 
   Example:
   {

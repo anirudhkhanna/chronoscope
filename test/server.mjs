@@ -19,6 +19,10 @@ export function startTestServer() {
     const serverTimingMs = url.searchParams.get('serverTimingMs');
     const serverTimingName = url.searchParams.get('serverTimingName') || 'origin-rtt';
     const status = Number(url.searchParams.get('status') || 200);
+    // Lets a test simulate a third-party subresource (e.g. verifying custom
+    // headers stay scoped to first-party requests) without needing a real
+    // cross-origin service — just point this at another startTestServer().
+    const crossOriginImg = url.searchParams.get('crossOriginImg');
 
     const send = () => {
       const headers = { 'Content-Type': 'text/html' };
@@ -26,7 +30,8 @@ export function startTestServer() {
         headers['Server-Timing'] = `${serverTimingName};dur=${serverTimingMs}`;
       }
       res.writeHead(status, headers);
-      res.end(`<html><head><title>chronoscope-test</title></head><body>chronoscope-test-page ${Date.now()}</body></html>`);
+      const img = crossOriginImg ? `<img src="${crossOriginImg}">` : '';
+      res.end(`<html><head><title>chronoscope-test</title></head><body>chronoscope-test-page ${Date.now()}${img}</body></html>`);
     };
     if (delayMs > 0) {
       setTimeout(send, delayMs);

@@ -107,6 +107,36 @@ export async function waitForDevtoolsAttach(context, page, timeoutMs = 3000) {
   }
 }
 
+// Config-configurable custom headers (e.g. a WAF bypass token or an
+// internal-traffic marker) are attached only to requests whose origin
+// matches the target's own — never to third-party subresources (fonts,
+// analytics, ad scripts, etc.) pulled in by the page. Two independent
+// reasons, either one would be enough on its own:
+// 1. A non-safelisted header like this can fail a third party's own CORS
+//    preflight outright (confirmed against real Google Fonts: Chrome blocks
+//    the font request entirely with "Request header field x-host is not
+//    allowed by Access-Control-Allow-Headers"), breaking page resources that
+//    have nothing to do with what this header is actually for.
+// 2. Even when a third party's CORS policy happens to allow it, an
+//    internal/WAF-bypass header has no business being disclosed to a
+//    service that isn't the one it's meant for.
+// Registered once per context (not per-page) via context.route(), so it
+// automatically covers every page in that context — including reused pages
+// under --reuse-connection and new tabs under --new-tab-on-alarm — without
+// needing to be set up again for each one.
+export async function attachFirstPartyHeaders(context, targetUrl, headers) {
+  if (!headers || Object.keys(headers).length === 0) return;
+  const targetOrigin = new URL(targetUrl).origin;
+  await context.route('**/*', (route) => {
+    const isFirstParty = new URL(route.request().url()).origin === targetOrigin;
+    if (isFirstParty) {
+      route.continue({ headers: { ...route.request().headers(), ...headers } });
+    } else {
+      route.continue();
+    }
+  });
+}
+
 // One-time per-page setup: devtools attach + CDP throttle/cache-disable.
 // Shared by hitOnce's initial page creation AND --new-tab-on-alarm's
 // mid-run replacement page, so the two can't drift out of sync with each
@@ -205,10 +235,6 @@ export async function hitOnce(browser, target, id, userAgent, alarmGapMs, alarmG
         deviceScaleFactor: deviceProfile ? deviceProfile.deviceScaleFactor : 1,
         isMobile: Boolean(deviceProfile),
         hasTouch: Boolean(deviceProfile),
-        // Sent with every request from this context, including the doc call —
-        // config-configurable so different brands can add their own identifying
-        // header (e.g. a bypass token for a WAF rule) without editing this file.
-        extraHTTPHeaders: site.headers,
         // TTFB/DNS/connect/TLS/download all come from the Navigation Timing
         // entry for the document response — none of it depends on JS executing.
         // Disabling it removes JS-driven noise (redirects, client-side
@@ -216,6 +242,7 @@ export async function hitOnce(browser, target, id, userAgent, alarmGapMs, alarmG
         // supposed to depend on them.
         javaScriptEnabled: !disableJs,
       });
+      await attachFirstPartyHeaders(context, target.url, site.headers);
       page = await context.newPage();
       await setupPage(context, page, devtools, networkProfile, reuseConnection);
     }

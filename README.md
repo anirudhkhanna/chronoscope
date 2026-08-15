@@ -61,7 +61,7 @@ Everything site-specific lives in a JSON config (default `./latency-config.json`
 
 - **`testUrls`** (required) — each key becomes a "group" you can filter on with `--only`. A group's value can be a single URL, an array of URLs, or a `{name: url}` map — pick whichever fits.
 - **`serverTimingMetric`** (optional) — the name of a `Server-Timing` entry your app/CDN adds (e.g. via nginx `add_header Server-Timing 'origin-rtt;dur=...'`). Omit it entirely if you don't have one yet — the tool still measures TTFB, it just skips the gap/alarm comparison.
-- **`headers`** (optional) — an object of header-name → string value, sent with every request from the browser context, including the doc call. Useful for a WAF bypass token or an internal-traffic marker header.
+- **`headers`** (optional) — an object of header-name → string value, sent with every request whose origin matches the target's own — including the doc call, but never third-party subresources (fonts, analytics, ad scripts) the page happens to pull in. Useful for a WAF bypass token or an internal-traffic marker header. (Kept first-party-only deliberately: a non-standard header like this can fail a third party's own CORS preflight outright, and it shouldn't be disclosed to services it isn't meant for anyway.)
 - **`name` / `locale` / `timezoneId` / `uaSuffix` / `queryParam` / `alarmGapMs` / `alarmGapRatio`** — all optional, all documented with defaults in `--help`.
 
 ## What you get per run
