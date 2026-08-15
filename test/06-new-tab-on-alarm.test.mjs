@@ -90,6 +90,14 @@ test('new-tab-on-alarm: resume keypress continues reloading, then a second Ctrl+
     await tool.waitForOutput(/Paused —/, 3000);
     assert.equal(tool.proc.exitCode, null, 'still alive after the second (pausing) Ctrl+C');
 
+    // Standard POSIX signals aren't queued — firing SIGINT again the instant
+    // after the prior one merely confirmed "Paused —" printed risks the
+    // second delivery coalescing with a not-yet-fully-processed first one
+    // under CI's heavier scheduling jitter (never reproduced locally, but hit
+    // 04-network-device.test.mjs's equivalent double-SIGINT-to-exit sequence
+    // already uses this same gap). A short real gap makes the two signals
+    // unambiguously distinct deliveries.
+    await sleep(200);
     tool.stop('SIGINT'); // third: already paused, so this one exits for real
     const { code } = await tool.waitForExit();
     assert.equal(code, 0);
