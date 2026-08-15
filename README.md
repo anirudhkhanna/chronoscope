@@ -215,6 +215,14 @@ node chronoscope.mjs --only=pdp --interval=0
 node chronoscope.mjs --alarm-gap=800 --alarm-ratio=3
 ```
 
+## Running the test suite
+
+```bash
+npm test
+```
+
+An end-to-end suite (`test/*.test.mjs`, Node's built-in test runner, no extra dependency) that spawns the real binary against a local test server and asserts on its actual output — never your own `latency-config.json`. Takes 75-90s (real Chrome, ~60 scenarios). See `CLAUDE.md` for how it's built.
+
 See `CLAUDE.md` for how the codebase is put together internally.
 
 ## Author

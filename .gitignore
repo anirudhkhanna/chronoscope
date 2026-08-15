@@ -7,6 +7,10 @@ logs/
 # Local/machine-specific settings, not meant to be shared
 .claude/settings.local.json
 
+# Test suite's own temp config files — normally cleaned up in each test's
+# `finally` block, this only catches leftovers from a crashed test run
+test/.tmp-*
+
 # OS cruft
 .DS_Store
 
