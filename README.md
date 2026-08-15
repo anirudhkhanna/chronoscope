@@ -2,14 +2,17 @@
 
 *Webpage Latency Testing Kit*
 
+[![Tests](https://github.com/anirudhkhanna/chronoscope/actions/workflows/test.yml/badge.svg)](https://github.com/anirudhkhanna/chronoscope/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A synthetic TTFB monitor that drives real, locally installed Chrome to repeatedly hit a set of URLs and measure exactly what a browser sees — the same numbers your Core Web Vitals field data (CrUX) uses — so you can tell whether a latency gap between your app logs and your CWV dashboard is a network/edge problem or an origin problem.
 
 It optionally compares that TTFB against a `Server-Timing` header your app or CDN adds (e.g. `Server-Timing: origin-rtt;dur=495`), so every hit tells you both "what the browser measured" and "what your origin says it took" side by side.
 
 <table>
   <tr>
-    <td><img src="https://github.com/user-attachments/assets/57460100-f9f9-4bfc-a98c-fb357b561542" alt="Screenshot Test" width="100%" /></td>
-    <td><img src="https://github.com/user-attachments/assets/8435d45c-237b-4cf1-b799-77c07f2d3d2c" alt="Screenshot Results" width="100%" /></td>
+    <td><img src="https://github.com/user-attachments/assets/c7b613eb-099e-4259-a8ff-3f8907a6b96d" alt="Live run, --verbose" width="100%" /></td>
+    <td><img src="https://github.com/user-attachments/assets/a49ac20f-50a5-459a-ba5f-ceae1295bdeb" alt="Final summary, --verbose" width="100%" /></td>
   </tr>
 </table>
 
