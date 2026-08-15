@@ -198,8 +198,9 @@ There are enough flags now, with enough of them implying or requiring each other
 - `--devtools` implies `--manual`. Same pause-every-hit behavior, plus DevTools is already open on that window.
 - `--pause-on-alarm` implies `--manual` too, but narrows *when* it pauses to only hits that actually trip an alarm — everything else proceeds automatically on the normal interval. Composes with `--devtools` (pause only on alarms, but see the Network tab when it happens).
 
-**`--reuse-connection` and what builds on top of it:**
+**Reuse-connection (same tab) — and what builds on top of it:**
 
+- `--reuse-connection` keeps one persistent page open per target instead of opening a fresh browser context on every hit, so Chrome reuses whatever connection it already has to that origin — the same way a hand reload in an already-open tab does — instead of paying full connection setup (DNS, TCP, a VPN's per-connection tax) on every single request.
 - Works with any number of targets — each one gets its own dedicated persistent page, so they never interfere with each other's connection warmth.
 - Combines with any flag in the visibility chain above, but changes *how* pausing works: instead of waiting for you to close the window, it waits for a keypress (Enter) on the same page, since the page is never supposed to close — that's the whole point of reusing its connection.
 - `--new-tab-on-alarm` requires `--reuse-connection`. It forces a visible window like `--manual` does, but — unlike everything in the visibility chain — doesn't pause by default. This is also the one exception to that chain: under `--new-tab-on-alarm`, `--devtools` no longer implies pausing either. It still opens DevTools on every tab (including the fresh ones opened after each alarm); it just doesn't force you to be present for it, since the whole point is to collect evidence unattended. A first Ctrl+C pauses the entire run instead of exiting — Chrome and every kept-open tab are left untouched — so you can actually sit and inspect a tab without new ones appearing mid-look; a second Ctrl+C while already paused stops for good.
