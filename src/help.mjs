@@ -4,7 +4,9 @@
 // bootstrap sequence for why that ordering matters.
 import { TOOL_DEFAULTS, NETWORK_PRESETS, MOBILE_PRESETS, DEFAULT_MOBILE_PRESET, DEFAULT_CONFIG_PATH } from './constants.mjs';
 
-export const HELP_TEXT = `⏱️  Chronoscope — webpage latency testing kit
+export const HELP_TEXT = `  ⏱️  C H R O N O S C O P E
+  ───────────────────────────────
+  webpage latency testing kit
 
 Usage: node chronoscope.mjs [options]
 
