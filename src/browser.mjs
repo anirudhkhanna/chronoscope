@@ -192,6 +192,7 @@ export async function hitOnce(browser, target, id, userAgent, alarmGapMs, alarmG
     network_profile: networkProfileName,
     device_profile: deviceProfileName,
     status: null,
+    final_url: null,
     page_title: null,
     error: null,
     ttfb_ms: null,
@@ -258,6 +259,11 @@ export async function hitOnce(browser, target, id, userAgent, alarmGapMs, alarmG
     });
 
     record.status = response ? response.status() : null;
+    // page.url() reflects wherever navigation actually ended up — differs
+    // from the requested `record.url` only when the target redirected.
+    // Recorded unconditionally (cheap) since it's the only way to prove what
+    // was actually tested, independent of whether --verbose surfaces it live.
+    record.final_url = page.url();
     record.page_title = await page.title().catch(() => null);
 
     const nav = await page.evaluate(() => {

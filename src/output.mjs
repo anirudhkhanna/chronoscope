@@ -39,13 +39,74 @@ export function buildMetricsLine(rec, metricLabel, serverTimingMetric) {
   const gapVal = rec.gap_ms === null ? 'n/a' : fmtMs(rec.gap_ms);
   const gapRatioSuffix = rec.gap_ms === null ? '' : ` (${rec.gap_ratio}x)`;
   return rec.alarm
-    ? `   ttfb :: ${ttfbVal}  ${metricLabel} :: ${serverVal} | gap :: ${gapVal}${gapRatioSuffix}`
-    : `   ttfb :: ${boldize(ttfbVal)}  ${metricLabel} :: ${boldize(serverVal)} | gap :: ${boldize(gapVal)}${gapRatioSuffix}`;
+    ? `   ttfb :: ${ttfbVal}  ${metricLabel} :: ${serverVal}  |  gap :: ${gapVal}${gapRatioSuffix}`
+    : `   ttfb :: ${boldize(ttfbVal)}  ${metricLabel} :: ${boldize(serverVal)}  |  gap :: ${boldize(gapVal)}${gapRatioSuffix}`;
 }
 export function buildBreakdownLine(rec) {
   return `   ↳ dns=${fmtMs(rec.dns_ms)} connect=${fmtMs(rec.connect_ms)} tls=${fmtMs(rec.tls_ms)} ` +
     `wait=${fmtMs(rec.wait_ms)} download=${fmtMs(rec.download_ms)}`;
 }
+
+// --verbose's extra identity-class facts, shared by the live per-hit log and
+// the final summary's notableGaps list for the same reason
+// buildMetricsLine/buildBreakdownLine are shared — so an entry looks
+// identical whether it's scrolling by live or read back after the fact.
+//
+// Split into two groups rather than one combined list: url/redirected sit
+// flush left, right under the headline and above the page title — identity
+// facts, same tier as the target name itself, and specifically NOT inline in
+// the headline, since a 100+ char URL crammed into "target - status (...)"
+// pushes the terminal's wrap point into the middle of unrelated fields; as
+// its own line it wraps on its own without corrupting anything else. Neither
+// line is indented — that's reserved for the computed facts below (metrics/
+// breakdown/server-timing), so identity and computed read as two columns by
+// indentation alone. Both lines are dimmed by the caller, same as the page
+// title just below them — "where/what this was," not a number to scan for.
+export function buildVerboseIdentityLines(rec) {
+  const lines = [rec.url];
+  if (rec.final_url && rec.final_url !== rec.url) {
+    lines.push(`↳ redirected → ${rec.final_url}`);
+  }
+  return lines;
+}
+export function buildVerboseServerTimingLine(rec) {
+  const stEntries = rec.server_timing || [];
+  const stStr = stEntries.length > 0
+    ? stEntries.map((s) => `${s.name}=${Math.round(s.duration)}ms`).join(', ')
+    : '(none returned)';
+  return `   ↳ server-timing: ${stStr}`;
+}
+
+// The header's own run-conditions parenthetical — device/network profile
+// (only when not the desktop/no-throttle default) plus protocol, always.
+// Shared between the live headline and the final summary's per-entry
+// headline so the two can't drift into different field orders.
+export function buildProfileParen(rec) {
+  const parts = [];
+  if (rec.device_profile && rec.device_profile !== 'desktop') parts.push(rec.device_profile);
+  if (rec.network_profile && rec.network_profile !== 'none') parts.push(rec.network_profile);
+  parts.push(rec.protocol);
+  return `(${parts.join(' · ')})`;
+}
+
+// The full headline, shared verbatim between the live per-hit log and the
+// final summary's notableGaps list — there's no reason for a hit's identity
+// line to read differently just because it's being looked at after the fact
+// instead of live. An alarm appends "── ALARM: reason" at the end of the
+// SAME line (never a separate banner, never a leading tag); the summary's
+// own non-alarming ("padded next-worst") entries get the same trailing
+// treatment via belowThreshold, rather than a leading "[below threshold]"
+// tag that would've made the two call sites diverge for no real reason.
+export function buildHitHeadline(rec, { belowThreshold = false } = {}) {
+  const base = `[${rec.timestamp}] ${boldize(rec.target)} ${rec.request_id} - ${rec.status} ${buildProfileParen(rec)}`;
+  if (rec.alarm) return `${base}  ${alarmize(`── ALARM: ${rec.alarm_reason}`)}`;
+  if (belowThreshold) return `${base}  ${dimize('(below threshold)')}`;
+  return base;
+}
+
+// Full-width dim divider that closes out a live hit's block — unambiguous
+// even when hits are scrolling by fast.
+const HIT_RULE = '─'.repeat(66);
 
 // A small bordered "info panel" for the startup banner — visually separates
 // one-time run configuration from the scrolling per-request log lines below
@@ -91,46 +152,57 @@ function csvEscape(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export function logRequest(r, csvPath, jsonlPath, metricLabel, serverTimingMetric) {
+export function logRequest(r, csvPath, jsonlPath, metricLabel, serverTimingMetric, verbose = false) {
   const csvLine = [
     r.timestamp, r.request_id, r.target, csvEscape(r.url), r.network_profile, r.device_profile, r.status,
     r.ttfb_ms, r.server_ms, r.gap_ms, r.gap_ratio, r.alarm ? 1 : 0, csvEscape(r.alarm_reason),
     r.wait_ms, r.dns_ms, r.connect_ms, r.tls_ms,
     r.download_ms, r.total_ms, r.redirect_ms, r.protocol,
-    csvEscape(r.page_title), csvEscape(r.error),
+    csvEscape(r.page_title), csvEscape(r.error), csvEscape(r.final_url),
   ].map((v) => (v === null || v === undefined ? '' : v)).join(',');
   fs.appendFileSync(csvPath, csvLine + '\n');
   fs.appendFileSync(jsonlPath, JSON.stringify(r) + '\n');
 
   if (r.error) {
-    console.log(`[${r.timestamp}] id=${r.request_id} target=${r.target} ERROR: ${r.error}`);
+    console.log(`[${r.timestamp}] ${boldize(r.target)} ${r.request_id} - ERROR: ${r.error}`);
+    if (verbose) console.log(dimize(r.url));
+    console.log(dimize(HIT_RULE));
     return;
   }
 
-  const netStr = r.network_profile === 'none' ? '' : ` net=${r.network_profile}`;
-  const deviceStr = r.device_profile === 'desktop' ? '' : ` device=${r.device_profile}`;
-
-  // Three lines per hit, each a different kind of fact, so they're never
-  // mistaken for one another at a glance: identity (headline, never styled —
-  // even when alarming, it's not the fact that's alarming), the metrics that
-  // actually matter (buildMetricsLine — shared with the final summary's "Top
-  // 5 gaps" so both look identical), then the DNS/connect/TLS/wait/download
-  // breakdown (buildBreakdownLine) indented further and prefixed with "↳" to
-  // read as "detail of the above" instead of competing with it for attention.
-  const headline = `[${r.timestamp}] ${r.target}${netStr}${deviceStr} status=${r.status} id=${r.request_id} proto=${r.protocol} "${r.page_title}"`;
+  // Headline (buildHitHeadline): time, target, id, status, and the
+  // device/network/protocol parenthetical, plus an alarm tag appended at the
+  // end when the hit alarms.
+  //
+  // Below it: --verbose's url/redirected (buildVerboseIdentityLines) and the
+  // page title, all dimmed and flush left — "where/what this was," read
+  // top-to-bottom as one group, immediately followed by the metrics that
+  // actually matter (buildMetricsLine — shared with the final summary's
+  // notableGaps list so both look identical), the DNS/connect/TLS/wait/
+  // download breakdown (buildBreakdownLine), and finally --verbose's
+  // server-timing line — all three full brightness (alarmized instead, like
+  // metrics/breakdown, when the hit alarms), since only the identity block
+  // above (url/redirected/title) is secondary enough to dim on its own.
+  const identityLines = verbose ? buildVerboseIdentityLines(r) : [];
+  const titleLine = `"${r.page_title}"`;
   const metrics = buildMetricsLine(r, metricLabel, serverTimingMetric);
   const breakdown = buildBreakdownLine(r);
+  const serverTimingLine = verbose ? buildVerboseServerTimingLine(r) : null;
 
+  console.log(buildHitHeadline(r));
+  identityLines.forEach((line) => console.log(dimize(line)));
+  console.log(dimize(titleLine));
   if (r.alarm) {
-    console.log(alarmize(`!! ALARM (${r.alarm_reason}) !!`));
-    console.log(headline);
     console.log(alarmize(metrics));
     console.log(alarmize(breakdown));
   } else {
-    console.log(headline);
     console.log(metrics);
     console.log(breakdown);
   }
+  // Full brightness, same as breakdown — only dimmed by way of alarmize
+  // turning red when the hit alarms, never dimmed on its own.
+  if (serverTimingLine) console.log(r.alarm ? alarmize(serverTimingLine) : serverTimingLine);
+  console.log(dimize(HIT_RULE));
 }
 
 export function printRunningAggregate(results, metricLabel) {
@@ -158,7 +230,7 @@ export function printRunningAggregate(results, metricLabel) {
   );
 }
 
-export function printFinalSummary(summary, metricLabel, serverTimingMetric) {
+export function printFinalSummary(summary, metricLabel, serverTimingMetric, verbose = false) {
   console.log('');
   boxTop('Final summary');
   boxLine('Run', summary.runId);
@@ -238,15 +310,37 @@ export function printFinalSummary(summary, metricLabel, serverTimingMetric) {
     } else {
       title = `${alarmCount} alarming gap${alarmCount === 1 ? '' : 's'} + ${summary.notableGaps.length - alarmCount} next-worst (TTFB − ${metricLabel}), worst first within each`;
     }
+    // Underlined with a dash rule (matching renderTable's own header/rule
+    // convention above) so this title stands out from a live hit's own
+    // headline — a long run of alarms can otherwise look identical enough
+    // to the scrolling live log to read as "still running" rather than "this
+    // is the summary."
     console.log(boldize(title));
+    console.log('─'.repeat(title.length));
     if (caveat) console.log(`(${caveat})`);
-    for (const g of summary.notableGaps) {
-      const tag = g.alarm ? `[ALARM: ${g.alarm_reason}]` : '[below threshold]';
-      const headline = `${tag} [${g.timestamp}] ${g.target} id=${g.request_id}`;
-      console.log(headline);
+    // Same HIT_RULE + blank line as the live per-hit log closes out with —
+    // without the rule, a run with several alarms reads as one unbroken wall
+    // of text with no visual break between where one hit's facts end and the
+    // next one's begin; the blank line on top of that gives entries the same
+    // breathing room a live hit gets from its own Σ line before the next one.
+    //
+    // Each entry is also prefixed with its rank (#1, #2, ...) — real
+    // information, not decoration, since the title above already says "worst
+    // first": a live hit never carries a rank number, so seeing one is proof
+    // you're inside this bounded list rather than still watching live output,
+    // even scrolled past the title with no banner in view.
+    summary.notableGaps.forEach((g, i) => {
+      console.log(`${boldize(`#${i + 1}`)} ${buildHitHeadline(g, { belowThreshold: !g.alarm })}`);
+      if (verbose) buildVerboseIdentityLines(g).forEach((line) => console.log(dimize(line)));
+      console.log(dimize(`"${g.page_title}"`));
       console.log(g.alarm ? alarmize(buildMetricsLine(g, metricLabel, serverTimingMetric)) : buildMetricsLine(g, metricLabel, serverTimingMetric));
       console.log(g.alarm ? alarmize(buildBreakdownLine(g)) : buildBreakdownLine(g));
-    }
-    console.log('');
+      if (verbose) {
+        const stLine = buildVerboseServerTimingLine(g);
+        console.log(g.alarm ? alarmize(stLine) : stLine);
+      }
+      console.log(dimize(HIT_RULE));
+      console.log('');
+    });
   }
 }

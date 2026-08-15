@@ -72,7 +72,7 @@ async function main() {
   const {
     targets, intervalMs, jitterMs, alarmGapMs, alarmGapRatio,
     networkProfileName, networkProfile, deviceProfileName, deviceProfile,
-    headless, manual, pushOffscreen, devtools, pauseOnAlarm, disableJs, reuseConnection, newTabOnAlarm,
+    headless, manual, pushOffscreen, devtools, pauseOnAlarm, disableJs, reuseConnection, newTabOnAlarm, verbose,
   } = resolveRuntimeConfig(rawArgv, ALL_TARGETS, SITE);
 
   fs.mkdirSync(TOOL_DEFAULTS.logDir, { recursive: true });
@@ -83,7 +83,7 @@ async function main() {
 
   fs.writeFileSync(
     csvPath,
-    'timestamp,request_id,target,url,network_profile,device_profile,status,ttfb_ms,server_ms,gap_ms,gap_ratio,alarm,alarm_reason,wait_ms,dns_ms,connect_ms,tls_ms,download_ms,total_ms,redirect_ms,protocol,page_title,error\n'
+    'timestamp,request_id,target,url,network_profile,device_profile,status,ttfb_ms,server_ms,gap_ms,gap_ratio,alarm,alarm_reason,wait_ms,dns_ms,connect_ms,tls_ms,download_ms,total_ms,redirect_ms,protocol,page_title,error,final_url\n'
   );
 
   boxTop('⏱️  Chronoscope run configuration');
@@ -123,6 +123,9 @@ async function main() {
   if (newTabOnAlarm) {
     boxLine('On alarm', 'keep this tab open and continue reloading on a fresh one — no pause, tabs accumulate for later inspection');
   }
+  if (verbose) {
+    boxLine('Verbose', 'each hit also prints its full URL, any redirect landed on, and the raw Server-Timing response');
+  }
 
   const results = [];
   let shuttingDown = false;
@@ -156,7 +159,7 @@ async function main() {
     console.log('\nStopping — writing final summary from requests completed so far...');
     const summary = buildSummary(results, runId, targets);
     fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
-    printFinalSummary(summary, METRIC_LABEL, SITE.serverTimingMetric);
+    printFinalSummary(summary, METRIC_LABEL, SITE.serverTimingMetric, verbose);
     console.log(`Per-request CSV:   ${csvPath}`);
     console.log(`Per-request JSONL: ${jsonlPath}`);
     console.log(`Summary JSON:      ${summaryPath}`);
@@ -194,6 +197,7 @@ async function main() {
   }
   boxLine('User-Agent', taggedUA);
   boxBottom();
+  console.log('');
 
   // Only populated under --reuse-connection — one entry per target, each
   // holding that target's own dedicated {context, page}. hitOnce() hands
@@ -258,7 +262,7 @@ async function main() {
         ));
       }
       results.push(record);
-      logRequest(record, csvPath, jsonlPath, METRIC_LABEL, SITE.serverTimingMetric);
+      logRequest(record, csvPath, jsonlPath, METRIC_LABEL, SITE.serverTimingMetric, verbose);
       printRunningAggregate(results, METRIC_LABEL);
 
       if (reuseConnection) {
@@ -280,7 +284,7 @@ async function main() {
         const newPage = await context.newPage();
         await setupPage(context, newPage, devtools, networkProfile, reuseConnection);
         persistentByTarget.set(target.name, { context, page: newPage });
-        console.log(boldize(`>>> ALARM on "${target.name}" — keeping this tab open for inspection and continuing on a fresh one (${newTabCount} tab${newTabCount === 1 ? '' : 's'} kept open so far).\n`));
+        console.log(boldize(`\n>>> ALARM on "${target.name}" — keeping this tab open for inspection and continuing on a fresh one (${newTabCount} tab${newTabCount === 1 ? '' : 's'} kept open so far).\n`));
       }
 
       // Same "should this hit pause?" condition regardless of reuseConnection
@@ -290,11 +294,11 @@ async function main() {
       // the same never-closed page (--reuse-connection).
       const shouldPause = manual && (!pauseOnAlarm || record.alarm);
       if (shouldPause && reuseConnection) {
-        console.log(boldize(`>>> ${record.alarm ? 'ALARM on' : 'Hit for'} "${target.name}" — Chrome is still open on the same page for you to inspect (DevTools, Network tab, whatever you need). Press Enter here to resume reloading.\n`));
+        console.log(boldize(`\n>>> ${record.alarm ? 'ALARM on' : 'Hit for'} "${target.name}" — Chrome is still open on the same page for you to inspect (DevTools, Network tab, whatever you need). Press Enter here to resume reloading.\n`));
         await waitForKeypress();
         console.log('');
       } else if (shouldPause) {
-        console.log(boldize(`>>> Chrome is open for "${target.name}" — close the window (or quit Chrome) to continue to the next request.\n`));
+        console.log(boldize(`\n>>> Chrome is open for "${target.name}" — close the window (or quit Chrome) to continue to the next request.\n`));
         const closedVia = await waitForManualClose(page, browser);
         if (closedVia === 'browser') console.log('Chrome was quit.');
         // Real Chrome's shutdown (updater/crash-reporter cleanup, etc.) can

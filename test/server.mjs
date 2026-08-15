@@ -23,8 +23,17 @@ export function startTestServer() {
     // headers stay scoped to first-party requests) without needing a real
     // cross-origin service — just point this at another startTestServer().
     const crossOriginImg = url.searchParams.get('crossOriginImg');
+    // Lets a test verify --verbose's "redirected -> ..." line without a real
+    // site: a request carrying this param 302s to the given URL instead of
+    // serving the normal test page.
+    const redirectTo = url.searchParams.get('redirectTo');
 
     const send = () => {
+      if (redirectTo) {
+        res.writeHead(302, { Location: redirectTo });
+        res.end();
+        return;
+      }
       const headers = { 'Content-Type': 'text/html' };
       if (serverTimingMs !== null) {
         headers['Server-Timing'] = `${serverTimingName};dur=${serverTimingMs}`;

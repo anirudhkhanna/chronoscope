@@ -111,6 +111,7 @@ export function resolveRuntimeConfig(argv, allTargets, site) {
     deviceProfile = MOBILE_PRESETS[DEFAULT_MOBILE_PRESET];
   }
 
+  const verbose = Boolean(cli.verbose);
   const disableJs = Boolean(cli['no-js']);
   const reuseConnection = Boolean(cli['reuse-connection']);
   const devtools = Boolean(cli.devtools);
@@ -146,6 +147,6 @@ export function resolveRuntimeConfig(argv, allTargets, site) {
   return {
     targets, intervalMs, jitterMs, alarmGapMs, alarmGapRatio,
     networkProfileName, networkProfile, deviceProfileName, deviceProfile,
-    headless, manual, pushOffscreen, devtools, pauseOnAlarm, disableJs, reuseConnection, newTabOnAlarm,
+    headless, manual, pushOffscreen, devtools, pauseOnAlarm, disableJs, reuseConnection, newTabOnAlarm, verbose,
   };
 }

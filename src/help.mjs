@@ -159,6 +159,16 @@ Options:
                             tab without new ones appearing mid-look. Press
                             Enter in this terminal to resume, or Ctrl+C again
                             (while already paused) to stop for good.
+  --verbose                 Print more per hit, on top of the normal minimal
+                            log line: the exact URL requested (including the
+                            injected id), where navigation actually landed if
+                            the target redirected, and the full raw
+                            Server-Timing response (not just whichever one
+                            entry "serverTimingMetric" is configured to
+                            compare against). Also applies to the alarming
+                            gaps listed in the final summary at the end of
+                            the run. Off by default to keep the normal log
+                            minimal.
   --help                    Show this message.
 `;
 
@@ -171,5 +181,5 @@ export const KNOWN_FLAGS = new Set([
   'config', 'only', 'interval', 'jitter', 'alarm-gap', 'alarm-ratio',
   'network', 'network-rtt', 'network-down', 'network-up', 'no-js',
   'reuse-connection', 'mobile', 'device', 'headed', 'manual', 'devtools',
-  'pause-on-alarm', 'new-tab-on-alarm', 'help',
+  'pause-on-alarm', 'new-tab-on-alarm', 'verbose', 'help',
 ]);

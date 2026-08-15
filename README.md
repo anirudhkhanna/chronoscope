@@ -76,19 +76,35 @@ The console output is grouped so a real fact about a specific hit, a derived bre
 │ Alarm       gap ≥ 500ms OR ratio ≥ 2.5x  (metric: origin-rtt)
 │ ...
 └─────────────────────────────────────────────────────────────────────────────
-[2026-08-13T18:59:21.909Z] home status=200 id=msrvttpx-4222cf proto=h2 "..."
-   ttfb :: 420ms  origin-rtt :: 269ms | gap :: 151ms (1.56x)
+[2026-08-13T18:59:21.909Z] home msrvttpx-4222cf - 200 (h2)
+"Acme — Home"
+   ttfb :: 420ms  origin-rtt :: 269ms  |  gap :: 151ms (1.56x)
    ↳ dns=8ms connect=27ms tls=19ms wait=385ms download=179ms
+──────────────────────────────────────────────────────────────
    Σ n=5 (errors=0, alarms=1)  ttfb avg=526ms p75=581ms  origin-rtt avg=334ms p75=485ms  gap avg=192ms p75=253ms
 ```
 
-Alarming hits print an `!! ALARM (reason) !!` tag and turn the metrics/breakdown lines bold red (the headline never changes color — it's not the fact of the hit that's alarming). The running `Σ` line is dimmed throughout except the metric names, so it always reads as background, never as a fact about the hit above it.
+The headline is `[time] target id - status (device · network · proto)` — `device`/`network` only appear when a profile is active, otherwise it's just `(proto)`. The page title follows on its own line. An alarming hit appends `── ALARM: <reason>` to the end of that same headline.
+
+That's all the default log shows — no URL. `--verbose` adds the exact URL requested (including the injected id) and, if the target redirected, where it landed — both between the headline and the title — plus the full raw `Server-Timing` response by the breakdown line, not just whichever one entry `serverTimingMetric` is configured to compare against:
+
+```
+[2026-08-13T18:59:21.909Z] home msrvttpx-4222cf - 200 (h2)
+https://acme.example/?latencytest=msrvttpx-4222cf
+"Acme — Home"
+   ttfb :: 420ms  origin-rtt :: 269ms  |  gap :: 151ms (1.56x)
+   ↳ dns=8ms connect=27ms tls=19ms wait=385ms download=179ms
+   ↳ server-timing: origin-rtt=269ms, edge-cache=4ms
+──────────────────────────────────────────────────────────────
+```
+
+The same additions also show up in the final summary's alarming-gaps list, printed once at the end of a run, when `--verbose` was on for that run — an entry there looks identical to the live line, down to the same `── ALARM: <reason>`. A non-alarming entry padded in for context gets `(below threshold)` in that same spot instead. Since an entry there looks so close to a live one, each is prefixed with its rank (`#1`, `#2`, ...) and the section title is underlined — with a long list of alarms, it's easy to lose track of whether you're still watching the run or already reading its summary.
 
 Three files in `logs/`, all sharing one run id:
 
 | File | What's in it |
 |---|---|
-| `requests-<id>.csv` | One row per hit — TTFB, the configured server-timing value, the gap and why it alarmed (`alarm_reason`: `gap`, `ratio`, or `gap+ratio`), which network/device profile was active, and the DNS/connect/TLS/wait/download breakdown. Good for a spreadsheet pivot. |
+| `requests-<id>.csv` | One row per hit — TTFB, the configured server-timing value, the gap and why it alarmed (`alarm_reason`: `gap`, `ratio`, or `gap+ratio`), which network/device profile was active, the DNS/connect/TLS/wait/download breakdown, and `final_url` (where navigation actually landed — differs from `url` only if the target redirected). Good for a spreadsheet pivot. |
 | `requests-<id>.jsonl` | Same data plus full detail (every `Server-Timing` entry the response returned), one JSON object per line. |
 | `summary-<id>.json` | A tabular overall + per-target breakdown (avg/p75 for TTFB, the configured server-timing metric, and the gap), plus **every alarming hit** from the run — padded with the next-worst non-alarming hits if there were fewer than 5 alarms, so there's always something to compare against. Written once when you stop the run. |
 
@@ -185,6 +201,7 @@ There are enough flags now, with enough of them implying or requiring each other
 - `--network=<profile>` — or `--network-rtt`+`--network-down`+`--network-up` together, which override it
 - `--no-js`
 - `--mobile` — or `--device=<name>`, which implies `--mobile`
+- `--verbose`
 
 **Visibility chain — each one implies everything before it:**
 
@@ -221,7 +238,7 @@ node chronoscope.mjs --alarm-gap=800 --alarm-ratio=3
 npm test
 ```
 
-An end-to-end suite (`test/*.test.mjs`, Node's built-in test runner, no extra dependency) that spawns the real binary against a local test server and asserts on its actual output — never your own `latency-config.json`. Takes 75-90s (real Chrome, ~60 scenarios). See `CLAUDE.md` for how it's built.
+An end-to-end suite (`test/*.test.mjs`, Node's built-in test runner, no extra dependency) that spawns the real binary against a local test server and asserts on its actual output — never your own `latency-config.json`. Takes 90-110s (real Chrome, ~80 scenarios). See `CLAUDE.md` for how it's built.
 
 See `CLAUDE.md` for how the codebase is put together internally.
 
