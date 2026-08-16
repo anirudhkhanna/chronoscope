@@ -10,7 +10,7 @@ A synthetic TTFB monitor that drives real, locally installed Chrome to repeatedl
 It optionally compares that TTFB against a `Server-Timing` header your app or CDN adds (e.g. `Server-Timing: origin-rtt;dur=495`), so every hit tells you both "what the browser measured" and "what your origin says it took" side by side.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/1db8440f-6a29-44fb-aef7-ed4a6d01f1dd" alt="Chrome DevTools Network Timing panel showing a high unexplained wait time against a low origin-rtt Server-Timing value — the exact gap this tool measures" width="600" border="1" />
+  <img src="https://github.com/user-attachments/assets/d94391b7-37ff-4d49-81fd-b590620f3753" alt="Chrome DevTools Network Timing panel showing a high unexplained wait time against a low origin-rtt Server-Timing value — the exact gap this tool measures" width="600" />
 </p>
 
 <img src="https://github.com/user-attachments/assets/5eace5c6-018f-4c41-a3a5-b9defb04ce11" alt="Live run, --verbose" width="100%" />
